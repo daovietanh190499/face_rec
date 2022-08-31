@@ -516,5 +516,30 @@ def data():
 def images(secret_key, image_id):
     return send_file('images/' + secret_key + "/" + image_id + '.jpg')
 
+# @app.route('/change_name', methods=['POST'])
+# @login_required
+# def change_name():
+#     req = request.get_json()
+#     if 'access_key' not in req or 'name' not in req:
+#         return jsonify({"result": {'message': 'Vui lòng truyền access_key và tên'}}), 400
+    
+#     access_key = req['access_key']
+#     name = req['name']
+
+#     person = People.query.filter_by(access_key=access_key).first()
+#     if not person:
+#         return jsonify({"result": {'message': 'Đối tượng không tồn tại'}}), 404
+
+#     user = DefineImages.query.filter_by(person_id=person.id).first()
+#     if not person:
+#         return jsonify({"result": {'message': 'Quyền truy cập bị từ trối'}}), 403
+
+#     person = People.query.filter_by(access_key=access_key).first()
+#     person.name = name
+#     db.session.commit()
+
+#     return jsonify({"result": {'message': 'Thành công'}}), 200
+
+
 socketio.run(app, host='0.0.0.0', port=5051)
 # app.run(host='0.0.0.0', port=5000)
