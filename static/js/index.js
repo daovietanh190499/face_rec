@@ -1,7 +1,16 @@
 const socket = io();
 
 $('#container_extra').hide()
-
+var thead_1_classroom =   `
+                <tr>
+                    <th>STT</th>
+                    <th>Tên lớp</th>
+                    <th>Trạng thái</th>
+                    <th>Sĩ số</th>
+                    <th>% đi học đúng giờ</th>
+                    <th>Hành động</th>
+                </tr>
+            `
 var thead_1 =   `
                 <tr>
                     <th>Đối tượng</th>
@@ -13,6 +22,39 @@ var thead_1 =   `
                 </tr>
             `
 
+var tbody_1_classroom = (index = 'Unknown',class_name = 'Unknown', class_id = '123456', student_number = 0, state = 'Học', state_color = 'success', access_key_for_class='This_is_access_key_for_class') =>  `
+            <tr>
+                <td>
+                    <div>${index}</div>
+                </td>
+                <td>
+                    <div>${class_name}</div>
+                </td>
+                <td>
+                    <span class="active-circle bg-${state_color}"></span> ${state}
+                </td>
+
+                <td>
+                    <div> ${student_number} </div>
+                </td>
+                <td>
+                    <div> ${student_number}/${student_number} </div>
+                </td>
+                <td>
+                    <div class="dropdown open">
+                        <a href="#!" class="px-2" id="triggerId1" data-toggle="dropdown" aria-haspopup="true"
+                                aria-expanded="false">
+                                    <i class="fa fa-ellipsis-v"></i>
+                        </a>
+                        <div class="dropdown-menu" aria-labelledby="triggerId1">
+                            <a class="dropdown-item" href="#"><i class="fa fa-pencil mr-1"></i> Edit</a>
+                            <a class="dropdown-item text-danger" href="#" onclick="delete_class('${class_id}');"><i class="fa fa-trash mr-1" ></i> Delete</a>
+
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        `
 var tbody_1 = (timestamp, name, prefix, image_id, state, state_color) =>  `
                 <tr>
                     <td>
@@ -126,6 +168,34 @@ var modal_type1 = (image_id, options_) =>  `
                     </div>
                 `
 
+var class_info_block = (image_id = '', options_ = '') =>  `
+                <table> 
+                <tr>
+                    <td>Tên lớp: </td>
+                    <td>
+                        <input style="width:100%" type="text" class="form-control" placeholder="Nhập tên lớp" aria-label="Username" aria-describedby="basic-addon1" id="new_class_name">
+                    </td>
+                </tr>
+                <tr>
+                    <td>Sĩ số: </td>
+                    <td>
+                        <input style="width:100%" type="number" min="10" max="40" class="form-control" placeholder="Nhập sĩ số" aria-label="Username" aria-describedby="basic-addon1" id="new_student_number">
+                    </td>
+
+                </tr>
+            </table>
+
+        `
+function check_non_empty(){
+    let new_class_name = $('#new_class_name').val()
+    if (new_class_name == ""){
+        alert("Hãy nhập tên lớp");
+        return false;
+    }
+    else {
+        return true; 
+    }
+}
 function register(image_id) {
     $("#editModal_body").html(modal_type1(image_id, window.localStorage.getItem("options")))
     $("#editModal_btn").unbind('click').click(() => add_request(image_id))
