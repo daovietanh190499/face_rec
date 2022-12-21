@@ -198,10 +198,10 @@ function check_non_empty(){
 }
 function register(image_id) {
     $("#editModal_body").html(modal_type1(image_id, window.localStorage.getItem("options")))
-    $("#editModal_btn").unbind('click').click(() => add_request(image_id))
+    $("#editModal_btn").unbind('click').click(() => add_new_image(image_id))
 }
 
-function add_request(image_id) {
+function add_new_image(image_id) {
 	let body = ""
     let option = $('input[name="flexRadioDefault"]:checked').val();
 	if (option == 'define'){
@@ -225,14 +225,90 @@ function add_request(image_id) {
     })
 }
 
+function delete_image(access_key) {
+    console.log("Deleting image:", access_key)
+    body = JSON.stringify({'access_key': access_key, 'secret_key':secret_key})
+
+    console.log(body)
+
+    fetch('/deleteImage', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: body
+    })
+    .then(res => res.json())
+    .then(res => {
+        // $("#realtime").trigger("click")
+        $("#list").trigger("click")
+    })
+}
+
+function insert_classroom_info() {
+    $("#createClassForm_body").html(class_info_block())
+    $("#createClassForm_btn").unbind('click').click(() => request_new_classroom())
+}
+
+function request_new_classroom() {
+    if (check_non_empty()){
+
+        let new_class_name = $('#new_class_name').val()
+        let new_student_number = $('#new_student_number').val()
+        console.log("new_class_name:", new_class_name)
+        console.log("new_student_number:", new_student_number)
+        let body = ""
+        
+        body = JSON.stringify({'classname': new_class_name, 'student_number': new_student_number})
+    
+        fetch("createClass", {
+            method: "POST",
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            body: body
+        })
+        .then(res => res.json())
+        .then(res => {
+            // console.log(res)
+            $("#createClassForm").modal("hide")
+            getResult()
+    
+        })
+    }
+}
+
+function delete_class(class_id) {
+    console.log("(index.js) Deleting class:", class_id)
+    body = JSON.stringify({'class_id': class_id, 'secret_key':secret_key})
+    fetch('/deleteClass', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: body
+    })
+    .then(res => res.json())
+    .then(res => {
+        $("#classroom").trigger("click")
+    })
+}
+
 function getResult() {
     fetch("data", {
         method: "GET"
     })
     .then(res => res.json())
     .then(res => {
-        // console.log(res)
-        showResult(res)
+        menu = window.localStorage.getItem("menu")
+        if (menu == "classroom"){
+            showClassInfo(res)
+        }else{
+            showResult(res)
+        }
     })
 }
 
@@ -241,7 +317,31 @@ var options = ""
 function formatTime(timestamp) {
     return moment(timestamp, "x").format("hh:mm:ss DD/MM/YYYY ")
 }
+function showClassInfo(res) {
+    res = res['result']
+    menu = window.localStorage.getItem("menu")
 
+    if (menu == "classroom") {
+        $("#info_bar").hide()
+        $("#class_info_bar").show()
+
+        $("#container1").attr('class', 'full-container')
+        $("#container2").hide()
+        $("#thead1").html(thead_1_classroom)
+        body1 = ""
+
+        for(i = 0; i < res['all_classrooms'].length; i ++) {
+            body1 += tbody_1_classroom(index = i + 1, class_id = res['all_classrooms'][i].class_id,class_name = res['all_classrooms'][i].class_name, student_number = res['all_classrooms'][i].student_number)
+        }
+
+        $("#tbody1").html(body1)
+        button = `
+                <button class="btn btn-primary btn-sm" data-toggle="modal" data-target="#createClassForm" onclick="insert_classroom_info()">Thêm lớp</button>
+
+                `
+        $("#class_info_bar").html(button)
+    }
+}
 function showResult(res) {
     res = res['result']
 
@@ -250,8 +350,10 @@ function showResult(res) {
         options += `<option value="${res['current_checkin'][i]['access_key']}">${res['current_checkin'][i]['name']}</option>`
     }
     window.localStorage.setItem("options", options)
-
+    $("#class_info_bar").hide()
+    
     $("#info_bar").html(`<b class="text-success"> ${res['number_of_current_checkin']} người điểm danh </b> (tổng ${res['number_of_people']})   <span style="padding-left: 2rem">GPU: ${res['gpu']['a']} b/ ${res['gpu']['r']} b (tổng ${res['gpu']['t']})</span>`)
+    $("#info_bar").show()
 
     menu = window.localStorage.getItem("menu")
     if (menu == "realtime") {

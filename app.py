@@ -25,9 +25,9 @@ from app.backbone import Backbone
 from app.vision.ssd.config.fd_config import define_img_size
 from app.vision.ssd.mb_tiny_RFB_fd import create_Mb_Tiny_RFB_fd, create_Mb_Tiny_RFB_fd_predictor
 
-from sqlalchemy import func
+from sqlalchemy import func, delete
 from sqlalchemy.sql import text
-from create_app import create_app, db, DefineImages, People, Timeline, Users, verify_pass, login_manager
+from create_app import create_app, db, DefineImages, People, Timeline, Users, verify_pass, login_manager, Classroom
 from flask_login import (
     current_user,
     login_user,
@@ -304,7 +304,7 @@ def logout():
     logout_user()
     return redirect(url_for('index'))
 
-@app.route("/facerec", methods=['POST'])
+@app.route("/FaceRec", methods=['POST'])
 def facerec():
     req = request.get_json()
 
@@ -330,9 +330,9 @@ def facerec():
     img = load_image(img_input)
 
     image = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    boxes, labels, probs = predictor.predict(image, candidate_size / 2, threshold)
-    boxes = boxes.detach().cpu().numpy()
-    # boxes = np.array([[0, 0, image.shape[1], image.shape[0]]])
+    # boxes, labels, probs = predictor.predict(image, candidate_size / 2, threshold)
+    # boxes = boxes.detach().cpu().numpy()
+    boxes = np.array([[0, 0, image.shape[1], image.shape[0]]])
 
     feats = []
     images = []
@@ -453,6 +453,8 @@ def data():
               .group_by(DefineImages.person_id, People.name, People.access_key)\
               .all()
 
+    all_classrooms = db.session.query(Classroom.id, Classroom.class_id, Classroom.class_name, Classroom.student_number).all()
+
     current_checkin = db.session.query(Timeline.person_id, Timeline.timestamp, Timeline.image_id, People.name)\
               .filter(Timeline.user_id==current_user.id)\
               .filter(People.id==Timeline.person_id)\
@@ -482,8 +484,13 @@ def data():
     for u in current_checkin:
         people_array[str(u[0])] = {'name': u[3], 'image_id': u[2], 'timestamp': str(u[1]), 'checkin': True, 'access_key': people_array[str(u[0])]['access_key']}
     
+    class_array = {}
+    for u in all_classrooms:
+        class_array[str(u[0])] = {'class_name': u[1], 'class_id': u[2], 'student_number': u[3]}
+
     number_of_current_checkin = len(current_checkin)
     current_checkin = [people_array[u] for u in people_array.keys()]
+    all_classrooms = [class_array[u] for u in class_array.keys()]
     current_timeline = [{'name': u[3], 'image_id': u[2], 'timestamp': str(u[1])} for u in current_timeline]
     strangers = [{'image_id': u[2], 'timestamp': str(u[1])} for u in strangers]
     number_of_people = len(current_checkin)
@@ -500,6 +507,7 @@ def data():
         "result": {
             'secret_key': current_user.secret_key,
             'number_of_people': number_of_people,
+            'all_classrooms': all_classrooms,
             'current_checkin': current_checkin,
             'number_of_current_checkin': number_of_current_checkin,
             'current_timeline': current_timeline,
@@ -540,6 +548,64 @@ def images(secret_key, image_id):
 
 #     return jsonify({"result": {'message': 'Thành công'}}), 200
 
+@app.route('/deleteImage', methods=["GET", "POST"])
+def deleteImage():
+    req = request.get_json()
+    access_key = req['access_key']
+    print('\nRemove image access_key ', access_key, 'completelly!\n')
+    person = People.query.filter_by(access_key=access_key).first()
+    db.session.delete(person)
+    db.session.commit()
 
-socketio.run(app, host='0.0.0.0', port=5051)
+    sql1 = delete(DefineImages).where(DefineImages.person_id == person.id)
+    db.session.execute(sql1)
+    db.session.commit()
+
+    user = Users.query.filter_by(secret_key=req['secret_key']).first()
+
+    p = hnswlib.Index(space = 'cosine', dim = 512)
+    p.init_index(max_elements = 1000, ef_construction = 200, M = 16)
+    print('\n\n\nRebuild hnswlib\n\n\n')
+    # Rebuild index
+    remainImages = DefineImages.query.all()
+    for imageI in remainImages:
+        print(imageI.image_id)
+        image_instance = Timeline.query.filter_by(image_id=imageI.image_id).first()
+        embedding = image_instance.embedding
+        embedding = embedding[2:-2]
+        embedding = np.expand_dims(np.fromstring(embedding, dtype='float32', sep=','), axis=0)
+        p.add_items(embedding, np.array([imageI.id]))
+    p.set_ef(10)
+    p.set_num_threads(4)
+    p.save_index("indexes/index_" + str(user.id) + ".bin")
+    return jsonify({"verified": 'Ok'}), 200
+
+@app.route("/createClass", methods=['POST'])
+def createClass():
+    req = request.get_json()
+    print('(app.py) ' + str(req))
+    class_name = req['classname']
+    student_number = req['student_number']
+    now = datetime.datetime.now().timestamp() * 1000
+
+    newClass = Classroom(class_id='C' + str(int(now)), class_name=class_name, student_number=student_number)
+    db.session.add(newClass)
+    db.session.commit()
+
+    return jsonify({"verified": 'OK'}), 200
+
+@app.route('/deleteClass', methods=["GET", "POST"])
+def deleteClass():
+    req = request.get_json()
+    class_id = req['class_id']
+    print('\nRemove class with id-{}'.format(class_id), 'completelly!\n')
+    
+    classroom = Classroom.query.filter_by(class_id=class_id).first()
+    db.session.delete(classroom)
+    db.session.commit()
+
+    return jsonify({"verified": 'Ok'}), 200
+
+
+socketio.run(app, host='0.0.0.0', port=5051, debug=True)
 # app.run(host='0.0.0.0', port=5000)

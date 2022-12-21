@@ -96,7 +96,35 @@ class People(db.Model):
 
     def __repr__(self):
         return str(self.id)
+class Classroom(db.Model):
 
+    __tablename__ = 'Classroom'
+
+    id = db.Column(db.Integer, primary_key=True)
+    class_id = db.Column(db.Integer)
+    class_name = db.Column(db.String(200))
+    student_number = db.Column(db.Integer)
+    student_names = db.Column(db.Text)
+    schedules = db.Column(db.Text)
+
+    # timestamp = db.Column(db.Float)
+
+    # name = db.Column(db.String(200))
+    # access_key = db.Column(db.String(64), unique=True)
+
+    def __init__(self, **kwargs):
+        for property, value in kwargs.items():
+            # depending on whether value is an iterable or not, we must
+            # unpack it's value (when **kwargs is request.form, some values
+            # will be a 1-element list)
+            if hasattr(value, '__iter__') and not isinstance(value, str):
+                # the ,= unpack of a singleton fails PEP8 (travis flake8 test)
+                value = value[0]
+
+            setattr(self, property, value)
+
+    def __repr__(self):
+        return str(self.id)
 
 class DefineImages(db.Model):
 
@@ -181,4 +209,10 @@ def create_app():
     app.config.from_object(ProductionConfig)
     register_extensions(app)
     configure_database(app)
+    index_dir_path = 'indexes/'
+    image_dir_path = 'images/'
+    if not os.path.exists(index_dir_path):
+        os.makedirs(index_dir_path)
+    if not os.path.exists(image_dir_path):
+        os.makedirs(image_dir_path)
     return app
