@@ -41,13 +41,13 @@ var tbody_1 = (begin, end, access_key, name, prefix, image_id, state, state_colo
                                         <i class="fa fa-ellipsis-v"></i>
                             </a>
                             <div class="dropdown-menu" aria-labelledby="triggerId1">
-                                <a class="dropdown-item" data-toggle="modal" data-target="#editModal" onclick="register('update', '${access_key}')"><i class="fa fa-pencil mr-1"></i> Edit</a>
                                 <a class="dropdown-item text-danger" onclick="delete_image('${access_key}')"><i class="fa fa-trash mr-1"></i> Delete</a>
                             </div>
                         </div>
                     </td>
                 </tr>
             `
+            // <a class="dropdown-item" data-toggle="modal" data-target="#editModal" onclick="register('update', '${access_key}')"><i class="fa fa-pencil mr-1"></i> Edit</a>
 
 var thead_2 =   `
                 <tr>
@@ -100,17 +100,31 @@ var thead_4_classroom =   `
                 <tr>
                     <th>Tên lớp</th>
                     <th>Sĩ số</th>
+                    <th>Danh sách lớp</th>
+                    <th>Hành động</th>
+                </tr>
+            `
+
+var thead_student_list =   `
+                <tr>
+                    <th>Tên</th>
+                    <th>Lớp</th>
+                    <th>Giới tính</th>
+                    <th>Thông tin</th>
                     <th>Hành động</th>
                 </tr>
             `
 
 var tbody_4_classroom = (class_id = '0', class_name = 'Unknown', student_number = 0) =>  `
-            <tr>
+            <tr data-toggle="modal" data-target="#editModal" >
                 <td>
                     <div>${class_name}</div>
                 </td>
                 <td>
                     <div> ${student_number} </div>
+                </td>
+                <td>
+                    <span class="material-symbols-outlined" onclick="show_class_members('${class_name}', '${class_id}')"> patient_list </span>
                 </td>
                 <td>
                     <div class="dropdown open">
@@ -126,16 +140,39 @@ var tbody_4_classroom = (class_id = '0', class_name = 'Unknown', student_number 
                 </td>
             </tr>
         `
+        
+var tbody_student_list = (name = 'Nguyễn Văn A', age = 'Lớp 1B', gender = 'Unknown', student_id = '123456') =>  `
+            <tr>
+                <td>
+                    <input type="text" class="form-control" placeholder="${name}" aria-label="Age" aria-describedby="basic-addon1" id="update_age">
+                </td>
+                <td>
+                    <input type="text" class="form-control" placeholder="${age}" aria-label="Age" aria-describedby="basic-addon1" id="update_age">
+                </td>
+                <td>
+                    <input type="text" class="form-control" placeholder="${gender}" aria-label="Age" aria-describedby="basic-addon1" id="update_gender">
+                </td>
+                <td>
+                    <a class="dropdown-item text-dark" href="#" onclick="show_parent_teacher('${student_id}');">
+                        <span class="material-symbols-outlined"> patient_list </span>
+                    </a>
+                </td>
+                <td>
+                    <a class="dropdown-item text-danger" href="#" onclick="delete_image('${student_id}');"><i class="fa fa-trash mr-1" ></i></a>
+                </td>
+            </tr>
+        `
 
 // SỬA CÁI MODAL NÀY THÊM ẢNH, THÊM TÊN, THÊM TUỔI, THÊM GIỚI TÍNH, THÊM PHÂN LOẠI ROLE, NẾU ROLE LÀ PARENT HOẶC TEACHER THÌ HIỆN THÊM 1 Ô THÔNG TIN NHẬP PHONE
 // CÁI NÀY CÓ 2 TRƯỜNG HỢP DEFINE LÀ TẠO MỚI, UPDATE LÀ UPDATE THÔNG TIN THEO ACCESSKEY
-var modal_type1 = () =>  `
+
+
+var modal_type1 = (classes) =>  `
                     <div style="display:flex; width:100%">
-                       <input accept="image/*" type='file' id="uploadImage" style="display:none"/>
-                       <label class="form-check-label" for="uploadImage">
-                           <img style="width: 25%" id="preview">
-                       </label>
-                       <div style="width: 75%; padding-left: 2rem">
+                    <div style="width: 90%; padding-left: 2rem">
+
+                        <input type="file" accept="image/*" id="imageInput" onchange="previewImage()">
+                        <img style="width: 25%" id="imagePreview">
                         <div class="input-group mb-3">
                             <input type="text" class="form-control" placeholder="Nhập tên" aria-label="Username" aria-describedby="basic-addon1" id="new_name">
                         </div>
@@ -147,23 +184,24 @@ var modal_type1 = () =>  `
                         <div class="input-group mb-3">
                             <input type="text" class="form-control" placeholder="Nhập giới tính" aria-label="Gender" aria-describedby="basic-addon1" id="new_gender">
                         </div>
-                        
-                        <select class="form-select" aria-label="Default select example" id="type_role" placeholder="Chọn một phân loại">
-                            <option value="student">Học sinh</option>
-                            <option value="parent">Người đưa đón</option>
-                            <option value="teacher"Giaso viên</option>
-                        </select>
-                        
-                        /* Đoạn này lấy danh sách lớp học từ API ròi fill vào */
-                        <select class="form-select" aria-label="Default select example" id="class" placeholder="Chọn lớp học">
-                            <option value="class_id_1">classname1</option>
-                            <option value="class_id_2">classname2</option>
-                            <option value="class_id_3">classname3</option>
-                        </select>
-                        
-                        /* Giaso viên hoặc phụ huynh mới cần hiển thị input này */
                         <div class="input-group mb-3">
-                            <input type="text" class="form-control" placeholder="Nhập số điện thoại" aria-label="Phone" aria-describedby="basic-addon1" id="new_phone">
+                            <select class="form-select" aria-label="Default select example" id="type_role" placeholder="Chọn một phân loại" onchange="display_phonenumber()">
+                                <option value="parent">Người đưa đón</option>
+                                <option value="student">Học sinh</option>
+                                <option value="teacher">Giáo viên</option>
+                            </select>
+                        </div>
+                        
+                        <div class="input-group mb-3">
+                            <select class="form-select" aria-label="Default select example" id="class" placeholder="Chọn lớp học">
+                                ${classes}
+                            </select>
+                        </div>
+                        
+                        <div class="input-group mb-3">
+                            <div class="input-group mb-3" id="phone_number">
+                                <input type="text" class="form-control" placeholder="Nhập số điện thoại" aria-label="Phone" aria-describedby="basic-addon1" id="new_phone">
+                            </div>
                         </div>
                        </div>
                     </div>
@@ -171,33 +209,145 @@ var modal_type1 = () =>  `
 //CÁI CHO LỚP HỌC NÀY CŨNG SỬA CŨNG CÓ 2 TRƯỜNG HỢP GIỐNG TRÊN
 var modal_type2 = () =>  `
                     <div style="display:flex; width:100%">
-                       <div style="width: 75%; padding-left: 2rem">
+                       <div style="width: 90%; padding-left: 2rem">
                         <div class="input-group mb-3">
-                            <input type="text" class="form-control" placeholder="Nhập tên" aria-label="Username" aria-describedby="basic-addon1" id="new_class_name">
+                        <input type="text" class="form-control" placeholder="Nhập tên" aria-label="Username" aria-describedby="basic-addon1" id="new_class_name">
+                        </div>
+                        <div class="input-group mb-3">
+                            <select class="form-select" aria-label="Default select example" id="type_role" placeholder="Chọn một phân loại" onchange="display_phonenumber()">
+                                <option value="parent">GV 1</option>
+                                <option value="student">GV 2</option>
+                                <option value="teacher">GV 3</option>
+                            </select>
                         </div>
                        </div>
                     </div>
                 `
+var modal_student_class = () => `
+                        <table> 
+                            <tr>
+                                <td>Tên lớp: </td>
+                                <td>
+                                    <input style="width:100%" type="text" class="form-control" placeholder="Nhập tên lớp" aria-label="Username" aria-describedby="basic-addon1" id="new_class_name">
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Sĩ số: </td>
+                                <td>
+                                    <input style="width:100%" type="number" min="10" max="40" class="form-control" placeholder="Nhập sĩ số" aria-label="Username" aria-describedby="basic-addon1" id="new_student_number">
+                                </td>
 
-function register(option, access_key="") {
-    $("#editModal_body").html(modal_type1())
-    $("#editModal_btn").unbind('click').click(() => add_new_image(option, access_key))
-    $("#uploadImage").change(function() {
-        let file = $("#uploadImage")[0].files[0]
-        if (file) {
-            $("#preview").src = URL.createObjectURL(file)
-        }
+                            </tr>
+                        </table>
+                    `
+function show_parent_teacher(student_id){
+    console.log("Student id:", student_id)
+}
+
+function previewImage() {
+    // Get the selected file
+    const file = document.getElementById("imageInput").files[0];
+
+    // Create a file reader
+    const reader = new FileReader();
+
+    // Set the file reader to read the selected file as an image
+    reader.readAsDataURL(file);
+
+    // When the file has been read, set the src attribute of the image preview
+    reader.onload = function(e) {
+        const imagePreview = document.getElementById("imagePreview");
+        imagePreview.src = e.target.result;
+    };
+    }
+
+function show_class_members(class_name, class_id){
+    const element = document.getElementById("editModal_label");
+    element.innerHTML = "Danh sách học sinh của lớp " + class_name;
+    $("#table_editModal").show()
+
+    $("#editModal_body").hide()
+    // $("#editModal_btn").unbind('click').click(() => add_new_class(option, class_id))
+    // $("#thead_editModal").html()
+    $("#thead_editModal").html(thead_student_list)
+    body = JSON.stringify({'class_id': class_id, 'secret_key':'secret_key'})
+
+    fetch('/class_member', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: body
     })
+    .then(res => res.json())
+    .then(res => {
+        res = res['result']
+
+        body1 = ""
+        for(i = 0; i < res['class_members'].length; i ++) {
+            body1 += tbody_student_list(name = res['class_members'][i]['name'], age = res['class_members'][i]['age'], gender = res['class_members'][i]['gender'], student_id = res['class_members'][i]['student_id'])
+        }
+        $("#tbody_editModal").html(body1)
+    })
+
+
+}
+function display_phonenumber(){
+    const cur_role = document.getElementById("type_role")
+    if (cur_role.value != "student"){
+        $("#phone_number").show()
+    }
+    else{
+        $("#phone_number").hide()
+        const old_phonenumber = document.getElementById("new_phone");
+        old_phonenumber.value = ''
+    }
+}
+
+function register( option, access_key="") {
+    // const element = document.getElementById("editModal_label");
+    // element.innerHTML = "Đăng ký người mới"
+
+    let res = window.localStorage.getItem("all_classes")
+    class_list = JSON.parse(res)['class_list']
+    current_classes = ''
+    for(i = 0; i < class_list.length; i ++) {
+        class_id = "class_id_" + i
+        current_classes += '<option value=' + class_id + '>' + class_list[i]['name'] + '</option>'
+    }
+
+    $("#table_editModal").hide()
+    $("#editModal_body").show()
+    $("#editModal_body").html(modal_type1(current_classes))
+    // $("#uploadImage").change(function() {
+    //     let file = $("#uploadImage")[0].files[0]
+    //     if (file) {
+    //         $("#preview").src = URL.createObjectURL(file)
+    //     }
+    // })
+    $("#editModal_btn").unbind('click').click(() => add_new_image(option, access_key))
 }
 
 function add_new_image(option, access_key) {
 	let body = ""
     // THÊM TRƯỜNG THÔNG TIN VÀO ĐÂY ĐỂ HOÀN TẤT
+    // console.log('add_new_image')
+    const imagePreview = document.getElementById("imagePreview");
+    
+    // console.log($("#imagePreview").src)
+    // console.log(imagePreview.src)
+    // console.log('1111')
 	if (option == 'define'){
 		let new_name = $('#new_name').val();
-		body = JSON.stringify({'img': $("#preview").src, 'name': new_name})
+		let new_age = $('#new_age').val();
+		let new_gender = $('#new_gender').val();
+		let new_class_id = $('#class').val();
+		let new_role = $('#type_role').val();
+		let new_phone_number = $('#phone_number').val();
+		body = JSON.stringify({'img': imagePreview.src, 'name': new_name, 'age': new_age, 'gender': new_gender, 'role': new_role, 'class_id': new_class_id, 'phone_number': new_phone_number, 'secret_key':secret_key})
 	} else {
-		body = JSON.stringify({'img': $("#preview").src, 'access_key': access_key})
+		body = JSON.stringify({'img': imagePreview.src, 'name': new_name, 'age': new_age, 'gender': new_gender, 'role': new_role, 'class_id': new_class_id, 'phone_number': new_phone_number, 'access_key': access_key})
 	}
     fetch('/facereg', {
         method: 'POST',
@@ -215,27 +365,35 @@ function add_new_image(option, access_key) {
 }
 
 function delete_image(access_key) {
-    console.log("Deleting image:", access_key)
-    body = JSON.stringify({'access_key': access_key, 'secret_key':secret_key})
-
-    console.log(body)
-
-    fetch('/deleteImage', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        },
-        body: body
-    })
-    .then(res => res.json())
-    .then(res => {
-        // $("#realtime").trigger("click")
+    if (confirm("Bạn muốn xóa người này?")){
+        console.log("Deleting image:", access_key)
+        body = JSON.stringify({'access_key': access_key, 'secret_key':secret_key})
+    
+        fetch('/deleteImage', {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            },
+            body: body
+        })
+        .then(res => res.json())
+        .then(res => {
+            // $("#realtime").trigger("click")
+            $("#list").trigger("click")
+        })
+    }else{
         $("#list").trigger("click")
-    })
+        // $("#realtime").trigger("click")
+    }
 }
 
 function createClass(option, class_id) {
+    const element = document.getElementById("editModal_label");
+    element.innerHTML = "Tạo lớp mới";
+    $("#table_editModal").hide()
+    $("#editModal_body").show()
+
     $("#editModal_body").html(modal_type2())
     $("#editModal_btn").unbind('click').click(() => add_new_class(option, class_id))
 }
@@ -325,7 +483,7 @@ function showList(page) {
     .then(res => res.json())
     .then(res => {
         res = res['result']
-        
+        window.localStorage.setItem('all_classes', JSON.stringify(res))
         $("#info_bar").html(`<b class="text-success"> ${res['number_of_current_checkin']} người điểm danh </b> (tổng ${res['number_of_people']}) <button class="btn btn-primary btn-sm" data-toggle="modal" data-target="#editModal" onclick="register('define')">Thêm người +</button>`)
         
         $("#container1").attr('class', 'full-container')
@@ -350,6 +508,9 @@ function showClassInfo() {
         
         $("#info_bar").html(`<button class="btn btn-primary btn-sm" data-toggle="modal" data-target="#editModal" onclick="createClass()">Thêm lớp +</button>`)
 
+        $("#container1").attr('class', 'full-container')
+        $("#container2").hide()
+
         $("#thead1").html(thead_4_classroom)
         body1 = ""
 
@@ -369,7 +530,7 @@ for (let i = 0; i < links.length; i++) {
     links[i].addEventListener("click", mouseenterFunc);
 }
 
-$("#realtime").trigger("click")
+$("#list").trigger("click")
 
 function mouseenterFunc(e) {
     window.localStorage.setItem("menu", e.target.id)
@@ -379,6 +540,8 @@ function mouseenterFunc(e) {
     }
     
     if (e.target.id == "list") {
+        // Note
+        // Check the page number
         showList(1)
     }
     

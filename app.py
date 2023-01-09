@@ -456,8 +456,11 @@ def facereg():
 
     if not ('access_key' in req):
         # THAY ĐỔI PHẦN NÀY LẤY THÔNG TIN TỪ REQUEST CỦA CÁI MODAL GỬI LÊN =============================================================================================================================================================
-        person = People(user_id=current_user.id, name=name, age=10, type_role="student", gender="", phone="", access_key=access_key)
+        person = People(user_id=current_user.id, name=name, age=req['age'], type_role=req['role'], gender=req['gender'], phone=req['phone_number'], access_key=access_key)
         db.session.add(person)
+        db.session.commit()
+        pc = PeopleClasses(person_id = person.id, class_id = req['class_id'])
+        db.session.add(pc)
         db.session.commit()
         
     person = People.query.filter_by(access_key=access_key).first()
@@ -467,7 +470,7 @@ def facereg():
     if not os.path.isdir("images/" + req['secret_key'] ):
         os.mkdir("images/" + req['secret_key'] )
     cv2.imwrite("images/" + req['secret_key'] + "/face_" + str(now) + ".jpg", cv2.cvtColor(images[0], cv2.COLOR_RGB2BGR))
-    image = Timeline(user_id=user.id, person_id=person.id, image_id="face_" + str(now), embedding=np.array2string(embedding, separator=','), timestamp=now)
+    image = Timeline(user_id=current_user.id, person_id=person.id, image_id="face_" + str(now), embedding=np.array2string(embedding, separator=','), timestamp=now)
     db.session.add(image)
     db.session.commit()
 
@@ -488,7 +491,6 @@ def facereg():
 def deleteImage():
     req = request.get_json()
     access_key = req['access_key']
-    print('\nRemove image access_key ', access_key, 'completelly!\n')
     person = People.query.filter_by(access_key=access_key).first()
     db.session.delete(person)
     db.session.commit()
@@ -497,20 +499,23 @@ def deleteImage():
     db.session.execute(sql1)
     db.session.commit()
 
+    print('\nRemove image access_key', access_key, 'completelly!\n')
+
     user = Users.query.filter_by(secret_key=req['secret_key']).first()
 
     p = hnswlib.Index(space = 'cosine', dim = 512)
     p.init_index(max_elements = 1000, ef_construction = 200, M = 16)
     print('\n\n\nRebuild hnswlib\n\n\n')
     # Rebuild index
-    remainImages = DefineImages.query.all()
-    for imageI in remainImages:
+    remainDefineImages= DefineImages.query.all()
+    for imageI in remainDefineImages:
         print(imageI.image_id)
         image_instance = Timeline.query.filter_by(image_id=imageI.image_id).first()
-        embedding = image_instance.embedding
-        embedding = embedding[2:-2]
-        embedding = np.expand_dims(np.fromstring(embedding, dtype='float32', sep=','), axis=0)
-        p.add_items(embedding, np.array([imageI.id]))
+        if image_instance != None:
+            embedding = image_instance.embedding
+            embedding = embedding[2:-2]
+            embedding = np.expand_dims(np.fromstring(embedding, dtype='float32', sep=','), axis=0)
+            p.add_items(embedding, np.array([imageI.id]))
     p.set_ef(10)
     p.set_num_threads(4)
     p.save_index("indexes/index_" + str(user.id) + ".bin")
@@ -546,7 +551,8 @@ def get_class(page):
               .filter(People.type_role=='student')\
               .group_by(Classes.id)\
               .all()
-    
+
+
     class_array = {}
     for u in all_classes_available:
         class_array[str(u[0])] = {'class_id': u[0], 'classname': u[1],  'number_of_student': 0}
@@ -555,7 +561,6 @@ def get_class(page):
             class_array[str(u[0])] = {'class_id': u[0], 'classname': u[1],  'number_of_student': u[2]}
     
     class_array_list = [class_array[u] for u in class_array.keys()]
-    
     return jsonify({
         "result": {
             "class_list": class_array_list,
@@ -585,6 +590,9 @@ def people_list(page):
               .limit(page_size)\
               .offset((page - 1) * page_size)\
               .all()
+    
+    all_classrooms = db.session.query(Classes.id, Classes.name, Classes.user_id, Classes.student_number).all()
+
 
     current_checkin = db.session.query(Timeline.person_id, func.min(Timeline.timestamp), func.max(Timeline.timestamp), Timeline.image_id, People.name)\
               .filter(Timeline.user_id==current_user.id)\
@@ -596,25 +604,58 @@ def people_list(page):
     if not current_checkin:
         current_checkin = []
     people_array = {}
+    class_array = {}
     for u in all_people:
         people_array[str(u[0])] = {'name': u[2], 'image_id': u[1], 'begin': '--', 'end': '--', 'checkin': False, 'access_key': u[3]}
+    for cI in all_classrooms:
+        class_array[str(cI[0])] = {'class_id': cI[0], 'name': cI[1], 'student_number': cI[3]}
     for u in current_checkin:
         if str(u[0]) in people_array:
             people_array[str(u[0])] = {'name': u[4], 'image_id': u[3], 'begin': str(u[1]), 'end': str(u[2]), 'checkin': True, 'access_key': people_array[str(u[0])]['access_key']}
     
     number_of_current_checkin = len(current_checkin)
     number_of_people = len(all_people_count)
+    all_classrooms = [class_array[u] for u in class_array.keys()]
     current_checkin = [people_array[u] for u in people_array.keys()]
-    
+
     return jsonify({
         "result": {
+            "class_list": all_classrooms,
             "people_list": current_checkin,
             'number_of_people': number_of_people,
             'number_of_current_checkin': number_of_current_checkin,
         }
     }), 200
     
+@app.route("/class_member", methods=['POST'])
+@login_required
+def get_class_member():
+    req = request.get_json()
+    # print("req['class_id']", req['class_id'])
+        
+    # all_class_people = db.session.query(PeopleClasses.person_id, PeopleClasses.class_id)\
+    #                     .all()
+    #                     # .filter(PeopleClasses.class_id== 'class_id_' + req['class_id'])\
+    # print(all_class_people)
+    all_class_members = db.session.query(People.name, People.age, People.gender, People.id)\
+                    .filter(People.type_role == 'student')\
+                    .join(PeopleClasses, People.id == PeopleClasses.person_id)\
+                    .filter(PeopleClasses.class_id== 'class_id_' + str(int(req['class_id']) - 1))\
+                    .all()
 
+    class_member_json = {}
+    for u in all_class_members:
+        class_member_json[str(u[0])] = {'name': u[0], 'age': u[1], 'gender' : u[2], 'student_id': u[3]}
+
+    class_member_array = [class_member_json[u] for u in class_member_json.keys()]
+
+
+    print('class_member_array', class_member_array)
+    return jsonify({
+        "result": {
+            "class_members": class_member_array,
+        }
+    }), 200
 @app.route("/data")
 @login_required
 def data():
@@ -707,5 +748,5 @@ def images(secret_key, image_id):
 #     return jsonify({"result": {'message': 'Thành công'}}), 200
 
 
-socketio.run(app, host='0.0.0.0', port=5052)
+socketio.run(app, host='0.0.0.0', port=5052, debug=True)
 # app.run(host='0.0.0.0', port=5000)
