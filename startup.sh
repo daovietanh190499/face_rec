@@ -1,0 +1,1 @@
+./new_new_env/bin/python -m pytunnel --port 85 --target 127.0.0.1:5052 --server 10.1.8.200:61001 & ./new_new_env/bin/python ./app.py && fg

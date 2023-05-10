@@ -1,0 +1,58 @@
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+    html, body {margin: 0; height: 100%; overflow: hidden}
+  
+    #main {
+      position: relative;
+      margin: 0px 0;
+      z-index: -50;
+    }
+  
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 100;
+    }
+  
+    #description {
+      margin-top: 20px;
+      width: 600px;
+    }
+  
+    #description-title {
+      font-weight: bold;
+      font-size: 18px;
+    }
+  </style>
+
+<script src="{{url_for('static', filename='js/tf.js') }}"></script>
+<script src="{{url_for('static', filename='js/blazeface.js') }}"></script>
+  
+  <body>
+    <div id="main">
+      <video id="video" playsinline style="
+        -webkit-transform: scaleX(-1);
+        transform: scaleX(-1);
+        width: auto;
+        height: auto;
+        ">
+      </video>
+      <canvas id="output"></canvas>
+      <canvas id="face_c" style="display: initial; top:500"></canvas>
+      <!-- <video id="video" playsinline style="
+        -webkit-transform: scaleX(-1);
+        transform: scaleX(-1);
+        visibility: hidden;
+        width: auto;
+        height: auto;
+        ">
+      </video> -->
+    </div>
+  </body>
+  <script src="{{url_for('static', filename='js/dat.gui.min.js') }}"></script>
+  <script src="{{url_for('static', filename='js/Stats.min.js') }}"></script>
+  <script src="{{url_for('static', filename='js/client.js') }}"></script>
