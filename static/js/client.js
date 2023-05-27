@@ -97,7 +97,7 @@ const renderPrediction = async () => {
             // 'Content-Type': 'application/x-www-form-urlencoded',
           }, body: JSON.stringify({
             'img': destinationCanvas.toDataURL(),
-            'secret_key': '69324546-9fe1-4c9b-8346-6a7dc080c130'
+            'secret_key': secret_key
           })}).then(res => res.json()).then(res => {
               console.log(res)
             // ctx.fillStyle = "red";

@@ -138,7 +138,7 @@ var people_list = Vue.component('people-list', {
 var checkin_list = Vue.component('checkin-list', {
     data() {
         return {
-            socket: io(),
+            websocket: new WebSocket(`ws://${window.location.host}${window.location.pathname == '/' ? '': window.location.pathname}/${secret_key}`),
             current_timeline: [],
             strangers: [],
             secret_key: secret_key
@@ -146,8 +146,8 @@ var checkin_list = Vue.component('checkin-list', {
     },
     mounted() {
         this.fetchData()
-        this.socket.on(this.secret_key, (message) => {
-           this.fetchData()
+        this.websocket.addEventListener("message", (event) => {
+            this.fetchData()
         });
     },
     methods: {
@@ -243,7 +243,7 @@ var class_list = Vue.component('class-list', {
     },
     methods: {
         getData() {
-            fetch(`/class_list/${this.page}`, {
+            fetch(`./class_list/${this.page}`, {
                 method: "GET"
             })
             .then(res => res.json())
@@ -260,7 +260,7 @@ var class_list = Vue.component('class-list', {
             body = JSON.stringify({
                 'class_access_key': class_access_key,
             })
-            fetch('/delete_class', {
+            fetch('./delete_class', {
                 method: 'POST',
                 headers: {
                     'Accept': 'application/json',
@@ -390,13 +390,13 @@ var people_modal = Vue.component('people-modal', {
     mounted() {
         this.getClassList({data: ""})
         if (this.access_key != "") {
-            fetch(`/people_list/1?access_key=` + this.access_key, {
+            fetch(`./people_list/1?access_key=` + this.access_key, {
                 method: "GET"
             })
             .then(res => res.json())
             .then(res => {
                 res = res['result']['people_list'][0]
-                this.imagePreview = '/images/' + this.secret_key + '/' + res.image_ids
+                this.imagePreview = './images/' + this.secret_key + '/' + res.image_ids
                 this.input.name = res.name
                 this.input.age = res.age
                 this.input.gender = res.gender
@@ -418,7 +418,7 @@ var people_modal = Vue.component('people-modal', {
     },
     methods: {
         getClassList(searchClass={data:""}) {
-            fetch(`/class_list/1?name=` + (searchClass.data != null ? searchClass.data : ""), {
+            fetch(`./class_list/1?name=` + (searchClass.data != null ? searchClass.data : ""), {
                 method: "GET"
             })
             .then(res => res.json())
@@ -661,7 +661,7 @@ var class_modal = Vue.component('class-modal', {
     mounted() {
         this.getTeacherList({data:""})
         if (this.class_access_key != "") {
-            fetch(`/class_list/1?class_access_key=` + this.class_access_key, {
+            fetch(`./class_list/1?class_access_key=` + this.class_access_key, {
                 method: "GET"
             })
             .then(res => res.json())
@@ -682,7 +682,7 @@ var class_modal = Vue.component('class-modal', {
     },
     methods: {
         getTeacherList(searchTeacher={data:""}) {
-            fetch(`/people_list/1?type_role=teacher&name=` + (searchTeacher.data != null ? searchTeacher.data : ""), {
+            fetch(`./people_list/1?type_role=teacher&name=` + (searchTeacher.data != null ? searchTeacher.data : ""), {
                 method: "GET"
             })
             .then(res => res.json())
@@ -705,7 +705,7 @@ var class_modal = Vue.component('class-modal', {
                     'class_name': new_class_name,
                     'teacher_access_keys': [this.input.teachers.access_key]
                 })
-                fetch("/add_class", {
+                fetch("./add_class", {
                     method: "POST",
                     headers: {
                         'Accept': 'application/json',

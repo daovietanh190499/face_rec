@@ -50,6 +50,7 @@ class Users(Base):
     password = Column(LargeBinary)
     role = Column(String(64))
     secret_key = Column(String(64), unique=True)
+    access_key = Column(String(64), unique=True)
 
     def __init__(self, **kwargs):
         for property, value in kwargs.items():
