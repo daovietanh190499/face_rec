@@ -46,7 +46,7 @@ var people_list = Vue.component('people-list', {
             return moment(timestamp, "x").format("hh:mm:ss DD/MM/YYYY ")
         },
         getData() {
-            fetch(`/people_list/${this.page}`, {
+            fetch(`./people_list/${this.page}`, {
                 method: "GET"
             })
             .then(res => res.json())
@@ -61,7 +61,7 @@ var people_list = Vue.component('people-list', {
                 'access_key': access_key
             })
 
-            fetch('/delete_image', {
+            fetch('./delete_image', {
                 method: 'POST',
                 headers: {
                     'Accept': 'application/json',
@@ -94,7 +94,7 @@ var people_list = Vue.component('people-list', {
                     <td>
                         <div class="user-info">
                             <div class="user-info__img">
-                                <img v-bind:src="'images/' + secret_key + '/' + person.image_ids" alt="User Img" 
+                                <img v-bind:src="'./images/' + secret_key + '/' + person.image_ids" alt="User Img" 
                                      v-bind:class="'border-' + (person.checkin? 'success': 'danger')">
                             </div>
                             <div class="user-info__basic">
@@ -155,7 +155,7 @@ var checkin_list = Vue.component('checkin-list', {
             return moment(timestamp, "x").format("hh:mm:ss DD/MM/YYYY ")
         },
         fetchData() {
-            fetch("data", {
+            fetch("./data", {
                 method: "GET"
             })
             .then(res => res.json())
@@ -186,7 +186,7 @@ var checkin_list = Vue.component('checkin-list', {
                         <td>
                             <div class="user-info">
                                 <div class="user-info__img">
-                                    <img v-bind:src="'/images/' + secret_key + '/' + person.image_id" alt="User Img" class="border-primary">
+                                    <img v-bind:src="'./images/' + secret_key + '/' + person.image_id" alt="User Img" class="border-primary">
                                 </div>
                                 <div class="user-info__basic">
                                     <h5 class="mb-0">{{ person.name }}</h5>
@@ -213,7 +213,7 @@ var checkin_list = Vue.component('checkin-list', {
                             <td>
                                 <div class="user-info">
                                     <div class="user-info__img">
-                                        <img v-bind:src="'/images/' + secret_key + '/' + person.image_id" alt="User Img" class="border-warning">
+                                        <img v-bind:src="'./images/' + secret_key + '/' + person.image_id" alt="User Img" class="border-warning">
                                     </div>
                                     <div class="user-info__basic">
                                         <h5 class="mb-0">Người lạ</h5>
@@ -296,7 +296,7 @@ var class_list = Vue.component('class-list', {
                     <td>
                         <div class="user-info" v-if="cl.teachers">
                             <div class="user-info__img">
-                                <img v-bind:src="'/images/' + secret_key + '/' + cl.teachers.image_id" 
+                                <img v-bind:src="'./images/' + secret_key + '/' + cl.teachers.image_id" 
                                      alt="User Img" class="border-primary">
                             </div>
                             <div class="user-info__basic">
@@ -355,12 +355,12 @@ var info_bar = Vue.component('info-bar', {
              người điểm danh {{ metadata.number_of_current_checkin ?  metadata.number_of_current_checkin : "0" }}
         </b> (tổng {{ metadata.number_of_people ?  metadata.number_of_people : "0" }}) 
         <button class="btn btn-primary btn-sm main_button" data-toggle="modal" data-target="#editModal" @click="openModal('list')" style="float:right">
-            <b class="mobile-disable">Thêm người </b><img class="icon-mobile" src="/static/img/user-plus-solid.svg">
+            <b class="mobile-disable">Thêm người </b><img class="icon-mobile" src="./static/img/user-plus-solid.svg">
         </button>
     </span>
     <span id="info_bar" v-else="menu == 'classroom'">
         <button class="btn btn-primary btn-sm main_button" data-toggle="modal" data-target="#editModal" @click="openModal('classroom')">
-            <b class="mobile-disable">Thêm lớp </b><img class="icon-mobile" src="/static/img/users-solid.svg">
+            <b class="mobile-disable">Thêm lớp </b><img class="icon-mobile" src="./static/img/users-solid.svg">
         </button>
     </span>
     `
@@ -444,7 +444,7 @@ var people_modal = Vue.component('people-modal', {
                 body['img'] = [this.imagePreview]
             }
             body = JSON.stringify(body)
-            fetch('/facereg', {
+            fetch('./facereg', {
                 method: 'POST',
                 headers: {
                     'Accept': 'application/json',
