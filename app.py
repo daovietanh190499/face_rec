@@ -6,9 +6,13 @@ from PIL import Image
 from numpy import dot, sqrt
 import re
 
-from flask import Response, request, jsonify, redirect, url_for, send_file
-from flask import Flask
-from flask import render_template
+from functools import wraps
+
+from aiohttp import web
+from aiohttp import client
+import aiohttp
+import asyncio
+
 import threading
 import argparse
 import datetime
@@ -21,6 +25,10 @@ import torchvision.transforms as transforms
 
 import hnswlib
 
+import jinja2
+import aiohttp_jinja2
+import traceback
+
 from app.backbone import Backbone
 from app.vision.ssd.config.fd_config import define_img_size
 from app.vision.ssd.mb_tiny_RFB_fd import create_Mb_Tiny_RFB_fd, create_Mb_Tiny_RFB_fd_predictor
@@ -28,34 +36,16 @@ from app.vision.ssd.mb_tiny_RFB_fd import create_Mb_Tiny_RFB_fd, create_Mb_Tiny_
 from sqlalchemy import func, delete
 from sqlalchemy.sql import text
 from sqlalchemy.orm import aliased
-from create_app import create_app, db, DefineImages, People, Timeline, Users, ChildrenPicker, PeopleClasses, Classes, PickUp, verify_pass, login_manager
-from flask_login import (
-    current_user,
-    login_user,
-    logout_user,
-    login_required
-)
-from flask_migrate import Migrate
-from flask_socketio import SocketIO
+from create_app import db_session, engine, Base, DefineImages, People, Timeline, Users, ChildrenPicker, PeopleClasses, Classes, PickUp, verify_pass
+
 from pubsub import pub
 
 import base64
 import requests
 import uuid
 
-app = create_app()
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
-Migrate(app, db)
-socketio = SocketIO(app)
-
-def listener(uid, message):
-    global cap
-    if message == 'close stream':
-        if cap is not None: 
-            cap.release()
-    else:
-        socketio.emit(uid,{'message': message})
-pub.subscribe(listener, 'face_vkist')
+app = web.Application()
+aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader('templates'))
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -132,26 +122,93 @@ def load_image(img):
 
 	return img
 
-@login_manager.unauthorized_handler
-def unauthorized_handler():
-    return redirect(url_for('index'))
+class LoginApp():
+    def __init__(self):
+        self.current_user
+    
+    def login_required(self, f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            user = None
+            try:
+                access_key = args[0].cookies['user_access_key']
+            except:
+                access_key = None
+            if not access_key:
+                user = None
+            else:
+                user = Users.query.filter_by(access_key=access_key).first()
+                if user:
+                    user = user.__dict__
+            return f(*((user,) + args), **kwargs)
+        return decorated
+        
+    def login_user(self, user, request):
+        access_key = uuid.uuid4()
+        user.access_key = str(access_key)
+        db_session.commit()
+        location = request.app.router['index'].url_for()
+        response = web.HTTPSeeOther(location=location)
+        response.cookies['user_access_key'] = user.access_key
+        return response
+
+    def logout_user(self, request):
+        location = request.app.router['index'].url_for()
+        response = web.HTTPSeeOther(location=location)
+        response.cookies['user_access_key'] = ''
+        return response
+
+login_app = LoginApp()
+
+def create_error_middleware(overrides):
+    @web.middleware
+    async def error_middleware(request, handler):
+        try:
+            Base.metadata.create_all(bind=engine)
+            resp = await handler(request)
+            db_session.remove()
+            return resp
+        except web.HTTPException as ex:
+            override = overrides.get(ex.status)
+            if override:
+                resp = await override(request, ex)
+                resp.set_status(ex.status)
+                return resp
+
+            raise
+        except Exception as e:
+            resp = await overrides[500](request, web.HTTPError(text=traceback.format_exc()))
+            resp.set_status(500)
+            return resp
+
+    return error_middleware
+
+def setup_middlewares(app):
+    error_middleware = create_error_middleware({
+        403: handle_403,
+        404: handle_404,
+        500: handle_500,
+    })
+    app.middlewares.append(error_middleware)
+
+setup_middlewares(app)
+
+def handle_403(request):
+    location = request.app.router['index'].url_for()
+    raise web.HTTPFound(location=location)
+
+def handle_404(request):
+    location = request.app.router['index'].url_for()
+    raise web.HTTPFound(location=location)
 
 
-@app.errorhandler(403)
-def access_forbidden(error):
-    return redirect(url_for('index'))
+def handle_500(request):
+    location = request.app.router['index'].url_for()
+    raise web.HTTPFound(location=location)
 
-@app.errorhandler(404)
-def not_found_error(error):
-    return redirect(url_for('index'))
-
-
-@app.errorhandler(500)
-def internal_error(error):
-    return redirect(url_for('index'))
-
-@app.route('/', methods=["GET", "POST"])
-def index():
+@aiohttp_jinja2.template('index.html') 
+@login_app.login_required
+def index(current_user, request):
     
     if 'login' in request.form and request.method == 'POST':
 
@@ -163,9 +220,10 @@ def index():
         user = Users.query.filter_by(username=username).first()
         # Check the password
         if user and verify_pass(password, user.password):
-            login_user(user)
+            login_app.login_user(user)
         
-        return redirect(url_for('index'))
+        location = request.app.router['index'].url_for()
+        raise web.HTTPFound(location=location)
 
     
     if 'register' in request.form and request.method == 'POST':
@@ -174,16 +232,18 @@ def index():
         password = request.form['password']
 
         if username.strip() == "" or password.strip() == "":
-            return redirect(url_for('index'))
+            location = request.app.router['index'].url_for()
+            raise web.HTTPFound(location=location)
 
         # Check usename exists
         user = Users.query.filter_by(username=username).first()
         if user:
-            return redirect(url_for('index'))
+            location = request.app.router['index'].url_for()
+            raise web.HTTPFound(location=location)
         # else we can create the user
         user = Users(username=username, password=password, secret_key="")
-        db.session.add(user)
-        db.session.commit()
+        db_session.add(user)
+        db_session.commit()
 
         p = hnswlib.Index(space = 'cosine', dim = 512)
         p.init_index(max_elements = 1000, ef_construction = 200, M = 16)
@@ -191,22 +251,25 @@ def index():
         p.set_num_threads(4)
         p.save_index("indexes/index_" + str(user.secret_key) + ".bin")
 
-        login_user(user)
+        login_app.login_user(user)
 
-        return redirect(url_for('index'))
+        location = request.app.router['index'].url_for()
+        raise web.HTTPFound(location=location)
     
     if not current_user.is_authenticated:
-        return render_template('index.html', is_login=False)
-    return render_template("index.html", is_login=True, current_user=current_user)
+        return {'is_login': False}
+    return {'is_login': True, 'current_user': current_user}
 
-@app.route('/client', methods=["GET"])
-def client():
-    return render_template('client.html')
+@aiohttp_jinja2.template('client.html') 
+@login_app.login_required
+def client_a(current_user, request):
+    return {'current_user':current_user}
     
-@app.route('/logout')
-def logout():
-    logout_user()
-    return redirect(url_for('index'))
+
+def logout(request):
+    login_app.logout_user()
+    location = request.app.router['index'].url_for()
+    raise web.HTTPFound(location=location)
 
 def get_embeddings(img_input, local_register = False):
     # img = []
@@ -242,17 +305,17 @@ def get_embeddings(img_input, local_register = False):
             bboxes.append("{} {} {} {}".format(xmin, ymin, xmax, ymax))
     return feats, images, bboxes
 
-@app.route("/facerec", methods=['POST'])
-def facerec():
+
+def facerec(request):
     req = request.get_json()
 
     if 'secret_key' not in req:
-        return jsonify({"result": {'message': 'Vui lòng truyền secret key'}}), 400
+        return  web.json_response({"result": {'message': 'Vui lòng truyền secret key'}}), 400
 
     user = Users.query.filter_by(secret_key=req['secret_key']).first()
     
     if not user:
-        return jsonify({"result": {'message': 'Secret key không hợp lệ'}}), 403
+        return  web.json_response({"result": {'message': 'Secret key không hợp lệ'}}), 403
 
     img_input = ""
     if "img" in list(req.keys()):
@@ -263,7 +326,7 @@ def facerec():
         validate_img = True
 
     if validate_img != True:
-        return jsonify({"result": {'message': 'Vui lòng truyền ảnh dưới dạng Base64'}}), 400
+        return  web.json_response({"result": {'message': 'Vui lòng truyền ảnh dưới dạng Base64'}}), 400
     
     feats, images, bboxes = get_embeddings(img_input)
     
@@ -282,7 +345,7 @@ def facerec():
         try:
             neighbors, distances = p.knn_query(feat, k=1)
             if distances[0][0] <= 0.45:
-                person_access_key = db.session.query(DefineImages.person_access_key, func.count(DefineImages.person_access_key).label('total'))\
+                person_access_key = db_session.query(DefineImages.person_access_key, func.count(DefineImages.person_access_key).label('total'))\
                             .filter(DefineImages.id.in_(neighbors.tolist()[0]))\
                             .filter(DefineImages.person_access_key==People.access_key)\
                             .filter(People.user_id==user.id)\
@@ -306,14 +369,14 @@ def facerec():
             os.mkdir("images/" + req['secret_key'] )
         cv2.imwrite("images/" + req['secret_key'] + "/face_" + str(now) + '_' + extra + ".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
         image = Timeline(user_id=user.id, person_access_key=person_access_key, image_id="face_" + str(now) + '_' + extra, embedding=np.array2string(feat, separator=','), timestamp=now)
-        db.session.add(image)
-        db.session.commit()
+        db_session.add(image)
+        db_session.commit()
         
         timelines.append(now)
 
         pub.sendMessage('face_vkist', uid=req['secret_key'], message='facerec ' + str(now))
     
-    return jsonify({'result': {"bboxes": bboxes, "identities": identities, "id": person_access_keys, "timelines": timelines, "profilefaceIDs": profile_face_ids, "3DFace": generated_face_ids}}), 200
+    return  web.json_response({'result': {"bboxes": bboxes, "identities": identities, "id": person_access_keys, "timelines": timelines, "profilefaceIDs": profile_face_ids, "3DFace": generated_face_ids}}), 200
 
 
 def validate_request(req, keys, values):
@@ -322,23 +385,23 @@ def validate_request(req, keys, values):
             req[key] = values[key]
     return req
             
-@app.route('/facereg', methods=['POST'])
-def facereg():
+
+async def facereg(request):
     req = request.get_json()
     if 'secret_key' not in req:
-        return jsonify({"result": {'message': 'Vui lòng truyền secret key'}}), 400
+        return  web.json_response({"result": {'message': 'Vui lòng truyền secret key'}}), 400
 
     user = Users.query.filter_by(secret_key=req['secret_key']).first()
     
     if not user:
-        return jsonify({"result": {'message': 'Secret key không hợp lệ'}}), 403
+        return  web.json_response({"result": {'message': 'Secret key không hợp lệ'}}), 403
     
     feats, images, boxes = ([], [], [])
 
     if "img" in list(req.keys()):
         for img_input in req["img"]:
             if not (len(img_input) > 11 and img_input[0:11] == "data:image/"):
-                return jsonify({"result": {'message': 'Vui lòng truyền ảnh dưới dạng Base64'}}), 400
+                return  web.json_response({"result": {'message': 'Vui lòng truyền ảnh dưới dạng Base64'}}), 400
             if 'local_register' in list(req.keys()):
                 feats_, images_, boxes_ = get_embeddings(img_input, True)
             else:
@@ -347,24 +410,24 @@ def facereg():
             images += images_
             boxes += boxes_
     if len(boxes) < 1 and 'access_key' not in req:
-        return jsonify({"result": {'message': 'Không xác định khuôn mặt'}}), 400
+        return  web.json_response({"result": {'message': 'Không xác định khuôn mặt'}}), 400
 
     if 'access_key' not in req or req['access_key']=="":
         if 'img' not in req or 'type_role' not in req or 'name' not in req:
-            return jsonify({"result": {'message': 'Vui lòng tryền đầy đủ dữ liệu'}}), 400
+            return  web.json_response({"result": {'message': 'Vui lòng tryền đầy đủ dữ liệu'}}), 400
         access_key = str(uuid.uuid4())
         # NVB 13-1-2023
         req = validate_request(req, ['name', 'age', 'type_role', 'class_access_key', 'gender', 'phone'], {'name': None, 'age': None, 'type_role': None, 'class_access_key': None, 'gender': None, 'phone': None})
         person = People(user_id=user.id, name=req['name'], age=req['age'], type_role=req['type_role'], gender=req['gender'], phone=req['phone'], access_key=access_key)
-        db.session.add(person)
-        db.session.commit()
+        db_session.add(person)
+        db_session.commit()
 
         pc = PeopleClasses.query.filter_by(person_access_key=person.access_key).first()
         if not pc:
             if not req['class_access_key'] is None and req['type_role'] != 'parent':
                 pc = PeopleClasses(class_access_key = req['class_access_key'], person_access_key = person.access_key)
-                db.session.add(pc)
-                db.session.commit()
+                db_session.add(pc)
+                db_session.commit()
             
     else:
         access_key = req['access_key']
@@ -376,18 +439,18 @@ def facereg():
         person.type_role=req['type_role']
         person.gender=req['gender']
         person.phone=req['phone']
-        db.session.commit()
+        db_session.commit()
 
         
         pc = PeopleClasses.query.filter_by(person_access_key=person.access_key).first()
         if not pc:
             if not req['class_access_key'] is None and req['type_role'] != 'parent':
                 pc = PeopleClasses(class_access_key = req['class_access_key'], person_access_key = person.access_key)
-                db.session.add(pc)
-                db.session.commit()
+                db_session.add(pc)
+                db_session.commit()
         else:
             pc.class_access_key = req['class_access_key']
-            db.session.commit()
+            db_session.commit()
     
     person = People.query.filter_by(access_key=access_key).first()
     
@@ -399,16 +462,16 @@ def facereg():
                     pc = ChildrenPicker.query.filter_by(child_access_key=person.access_key, picker_access_key=parent.id).first()
                     if not pc:
                         pc = ChildrenPicker(child_access_key=person.access_key, picker_access_key=parent.id)
-                        db.session.add(pc)
-                        db.session.commit()
+                        db_session.add(pc)
+                        db_session.commit()
             else:
                 child = People.query.filter_by(access_key=ak, type_role="student", user_id=user.id).first()  
                 pc = ChildrenPicker.query.filter_by(child_access_key=child.id, picker_access_key=person.access_key).first()
                 if child:
                     if not pc:
                         pc = ChildrenPicker(child_access_key=child.id, picker_access_key=person.access_key)
-                        db.session.add(pc)
-                        db.session.commit()
+                        db_session.add(pc)
+                        db_session.commit()
     
     p = hnswlib.Index(space = 'cosine', dim = 512)
     p.load_index("indexes/index_" + str(user.secret_key) + '.bin', max_elements=1000)
@@ -422,12 +485,12 @@ def facereg():
         extra = str(uuid.uuid4())
         cv2.imwrite("images/" + req['secret_key'] + "/face_" + str(now) + '_' + extra + ".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
         image = Timeline(user_id=user.id, person_access_key=person.access_key, image_id="face_" + str(now)  + '_' + extra, embedding=np.array2string(feat, separator=','), timestamp=now)
-        db.session.add(image)
-        db.session.commit()
+        db_session.add(image)
+        db_session.commit()
 
         define_image = DefineImages(person_access_key=person.access_key, image_id=image.image_id)
-        db.session.add(define_image)
-        db.session.commit()
+        db_session.add(define_image)
+        db_session.commit()
 
         define_image = DefineImages.query.filter_by(image_id=image.image_id).first()
         p.add_items(feat, np.array([define_image.id]))
@@ -436,48 +499,48 @@ def facereg():
     now = datetime.datetime.now().timestamp() * 1000
     pub.sendMessage('face_vkist', uid=user.secret_key, message='facereg ' + str(now))
 
-    return jsonify({"result": {'message': 'success'}}), 200
+    return  web.json_response({"result": {'message': 'success'}}), 200
 
 
-@app.route('/delete_image', methods=["POST"])
-@login_required
-def delete_image():
+
+@login_app.login_required
+async def delete_image(current_user, request):
     req = request.get_json()
     if 'access_key' not in req:
-        return jsonify({"result": {'message': 'Vui lòng truyền access key'}}), 400
+        return  web.json_response({"result": {'message': 'Vui lòng truyền access key'}}), 400
     
     access_key = req['access_key']
     
     person = People.query.filter_by(access_key=access_key, user_id=current_user.id).first()
     if not person:
-        return jsonify({"result": {'message': 'Bạn không có quyền xóa'}}), 403
+        return  web.json_response({"result": {'message': 'Bạn không có quyền xóa'}}), 403
 
     sql1 = delete(DefineImages).where(DefineImages.person_access_key == person.access_key)
-    db.session.execute(sql1)
-    db.session.commit()
+    db_session.execute(sql1)
+    db_session.commit()
     
     sql2 = delete(ChildrenPicker).where(ChildrenPicker.child_access_key == person.access_key)
-    db.session.execute(sql2)
-    db.session.commit()
+    db_session.execute(sql2)
+    db_session.commit()
     
     sql3 = delete(ChildrenPicker).where(ChildrenPicker.picker_access_key == person.access_key)
-    db.session.execute(sql3)
-    db.session.commit()
+    db_session.execute(sql3)
+    db_session.commit()
     
     sql4 = delete(PeopleClasses).where(PeopleClasses.person_access_key == person.access_key)
-    db.session.execute(sql4)
-    db.session.commit()
+    db_session.execute(sql4)
+    db_session.commit()
     
     sql5 = delete(PickUp).where(PickUp.child_access_key == person.access_key)
-    db.session.execute(sql5)
-    db.session.commit()
+    db_session.execute(sql5)
+    db_session.commit()
     
     sql6 = delete(PickUp).where(PickUp.picker_access_key == person.access_key)
-    db.session.execute(sql6)
-    db.session.commit()
+    db_session.execute(sql6)
+    db_session.commit()
     
-    db.session.delete(person)
-    db.session.commit()
+    db_session.delete(person)
+    db_session.commit()
 
     p = hnswlib.Index(space = 'cosine', dim = 512)
     p.init_index(max_elements = 1000, ef_construction = 200, M = 16)
@@ -485,7 +548,7 @@ def delete_image():
     p.set_num_threads(4)
     print('\n\n\nRebuild hnswlib\n\n\n')
     # Rebuild index
-    remainImages = db.session.query(People.id, DefineImages.id, Timeline.embedding) \
+    remainImages = db_session.query(People.id, DefineImages.id, Timeline.embedding) \
                         .filter(People.user_id==current_user.id) \
                         .filter(DefineImages.person_access_key==People.access_key) \
                         .filter(Timeline.image_id==DefineImages.image_id) \
@@ -498,23 +561,23 @@ def delete_image():
         p.add_items(embedding, np.array([imageI[1]]))
     p.save_index("indexes/index_" + str(current_user.secret_key) + ".bin")
     
-    return jsonify({"result" : {'mesage' : "Ok"}}), 200
+    return  web.json_response({"result" : {'mesage' : "Ok"}}), 200
 
 
-@app.route("/add_class", methods=['POST'])
-@login_required
-def add_class():
+
+@login_app.login_required
+async def add_class(current_user, request):
     req = request.get_json()
     if 'class_access_key' not in req or req['class_access_key'] == "":
         access_key = str(uuid.uuid4())
         new_class = Classes(name=req['class_name'], user_id=current_user.id, access_key=access_key)
-        db.session.add(new_class)
-        db.session.commit()
+        db_session.add(new_class)
+        db_session.commit()
     else:
         new_class = Classes.query.filter_by(access_key=req['class_access_key'], user_id=current_user.id).first()  
         if 'class_name' in req and req['class_name'] != "":
             new_class.name = req['class_name']
-            db.session.commit()
+            db_session.commit()
     
     if 'teacher_access_keys' in req and not req['teacher_access_keys'] is None:
         for ak in req['teacher_access_keys']:
@@ -523,72 +586,74 @@ def add_class():
                 pc = PeopleClasses.query.filter_by(person_access_key=person.access_key).first()
                 if not pc:
                     pc = PeopleClasses(class_access_key = new_class.access_key, person_access_key = person.access_key)
-                    db.session.add(pc)
-                    db.session.commit()
+                    db_session.add(pc)
+                    db_session.commit()
     
-    return jsonify({"result": {'message': 'success'}}), 200
+    return  web.json_response({"result": {'message': 'success'}}), 200
 
 
-@app.route("/delete_class", methods=['POST'])
-@login_required
-def delete_class():
+
+@login_app.login_required
+async def delete_class(current_user, request):
     req = request.get_json()
     class_access_key = req['class_access_key']
     target_class = Classes.query.filter_by(access_key=class_access_key, user_id=current_user.id).first()
     if not target_class:
-        return jsonify({"result": {'message': 'Bạn không có quyền xóa lớp này'}}), 403
+        return  web.json_response({"result": {'message': 'Bạn không có quyền xóa lớp này'}}), 403
 
-    db.session.delete(target_class)
-    db.session.commit()
+    db_session.delete(target_class)
+    db_session.commit()
 
     sql1 = delete(PeopleClasses).where(PeopleClasses.class_access_key == class_access_key)
-    db.session.execute(sql1)
-    db.session.commit()
-    return jsonify({"result": {'message': 'success'}}), 200
+    db_session.execute(sql1)
+    db_session.commit()
+    return  web.json_response({"result": {'message': 'success'}}), 200
 
 
-@app.route("/check_pickup", methods=['POST'])
-def check_pickup():
+
+async def check_pickup(request):
     req = request.get_json()
     if 'secret_key' not in req:
-        return jsonify({"result": {'message': 'Vui lòng truyền secret key'}}), 400
+        return  web.json_response({"result": {'message': 'Vui lòng truyền secret key'}}), 400
 
     user = Users.query.filter_by(secret_key=req['secret_key']).first()
     
     if not user:
-        return jsonify({"result": {'message': 'Secret key không hợp lệ'}}), 403
+        return  web.json_response({"result": {'message': 'Secret key không hợp lệ'}}), 403
     
     if 'id1' not in req or 'id2' not in req or 'timeline_id1' not in req or 'timeline_id2' not in req:
-        return jsonify({"result": {'message': 'Vui lòng tryền đầy đủ dữ liệu'}}), 400
+        return  web.json_response({"result": {'message': 'Vui lòng tryền đầy đủ dữ liệu'}}), 400
     
     person1 = None
     person2 = None
     if int(req['id1']) != -1:
         person1 = People.query.filter_by(access_key=req['id1'], user_id=user.id).first()
         if not person1:
-            return jsonify({"result": {'message': 'Bạn không có quyền thay đổi'}}), 403
+            return  web.json_response({"result": {'message': 'Bạn không có quyền thay đổi'}}), 403
     if int(req['id2']) != -1:
         person2 = People.query.filter_by(access_key=req['id2'], user_id=user.id).first()
         if not person2:
-            return jsonify({"result": {'message': 'Bạn không có quyền thay đổi'}}), 403
+            return  web.json_response({"result": {'message': 'Bạn không có quyền thay đổi'}}), 403
     
     if not person1 or person1.type_role == "parent" or  person1.type_role == "teacher":
         pk = PickUp(child_access_key=int(req['id2']), picker_access_key=int(req['id1']), child_timeline=int(req['timeline_id2']), parent_timeline=int(req['timeline_id1']))
-        db.session.add(pk)
-        db.session.commit()
+        db_session.add(pk)
+        db_session.commit()
     else:
         pk = PickUp(child_access_key=int(req['id1']), picker_access_key=int(req['id2']), child_timeline=int(req['timeline_id1']), parent_timeline=int(req['timeline_id2']))
-        db.session.add(pk)
-        db.session.commit()
+        db_session.add(pk)
+        db_session.commit()
 
-    return jsonify({"result": {'message': 'success'}}), 200
+    return  web.json_response({"result": {'message': 'success'}}), 200
 
 
-@app.route("/pickup_list/<page>", methods=['GET'])
-@login_required
-def get_pickup(page):
+
+@login_app.login_required
+async def get_pickup(current_user, request): #them page
     args = request.args.to_dict()
     
+    page = request.match_info.get('page','1')
+
     page = int(page)
     if page <= 0:
         page = 1
@@ -598,7 +663,7 @@ def get_pickup(page):
     
     People_alias = aliased(People)
     Timeline_alias = aliased(Timeline)
-    all_pickups_available = db.session.query(PickUp.id, Timeline.timestamp, People.name, People_alias.name, Timeline.image_id, Timeline_alias.image_id)\
+    all_pickups_available = db_session.query(PickUp.id, Timeline.timestamp, People.name, People_alias.name, Timeline.image_id, Timeline_alias.image_id)\
               .filter(Timeline.user_id==current_user.id)\
               .filter(Timeline_alias.user_id==current_user.id)\
               .filter(PickUp.child_access_key==People.access_key)\
@@ -622,7 +687,7 @@ def get_pickup(page):
     pickup_array_list = [pickup_array[u] for u in pickup_array.keys()]
     number_of_pickup = len(all_pickups_available.all())
     
-    return jsonify({
+    return  web.json_response({
         "result": {
             "number_of_pickup": number_of_pickup,
             "pickup_list": pickup_array_list,
@@ -630,10 +695,12 @@ def get_pickup(page):
     }), 200
 
 
-@app.route("/class_list/<page>", methods=['GET'])
-@login_required
-def get_class(page):
+
+@login_app.login_required
+async def get_class(current_user, request): #them page
     args = request.args.to_dict()
+
+    page = request.match_info.get('page','1')
     
     page = int(page)
     if page <= 0:
@@ -642,13 +709,13 @@ def get_class(page):
     
     args = validate_request(args, ['name', 'class_access_key'], {'name': '', 'class_access_key': '%%'})
     
-    all_classes_count = db.session.query(Classes.access_key, Classes.name)\
+    all_classes_count = db_session.query(Classes.access_key, Classes.name)\
               .filter(Classes.user_id==current_user.id)\
               .filter(func.lower(Classes.name).like('%'+args['name'].lower()+'%') & Classes.access_key.like(args['class_access_key']))
     
     all_classes_available = all_classes_count.limit(page_size).offset((page - 1) * page_size).all()
     
-    all_classes = db.session.query(Classes.access_key, Classes.name, func.count(Classes.access_key))\
+    all_classes = db_session.query(Classes.access_key, Classes.name, func.count(Classes.access_key))\
               .filter(Classes.user_id==current_user.id)\
               .filter(Classes.access_key==PeopleClasses.class_access_key)\
               .filter(People.access_key==PeopleClasses.person_access_key)\
@@ -656,7 +723,7 @@ def get_class(page):
               .group_by(Classes.access_key)\
               .all()
     
-    all_classes_teacher = db.session.query(Classes.access_key, Classes.name, People.name,  DefineImages.image_id)\
+    all_classes_teacher = db_session.query(Classes.access_key, Classes.name, People.name,  DefineImages.image_id)\
               .filter(Classes.user_id==current_user.id)\
               .filter(Classes.access_key==PeopleClasses.class_access_key)\
               .filter(People.access_key==PeopleClasses.person_access_key)\
@@ -678,7 +745,7 @@ def get_class(page):
     class_array_list = [class_array[u] for u in class_array.keys()]
     number_of_class = len(all_classes_count.all())
     
-    return jsonify({
+    return  web.json_response({
         "result": {
             "number_of_class": number_of_class,
             "class_list": class_array_list,
@@ -686,10 +753,12 @@ def get_class(page):
     }), 200
 
 
-@app.route("/people_list/<page>", methods=['GET'])
-@login_required
-def people_list(page):
+
+@login_app.login_required
+async def people_list(current_user, request): #tham page
     args = request.args.to_dict()
+
+    page = request.match_info.get('page','1')
     
     page = int(page)
     if page <= 0:
@@ -699,12 +768,12 @@ def people_list(page):
     today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000
     args = validate_request(args, ['name', 'type_role', 'class_name', 'access_key', 'begin', 'end'], {'name': "%{}%".format(''), 'type_role': "%{}%".format(''), 'access_key': "%{}%".format(''), 'class_name': "%{}%".format(''), 'begin': today, 'end': today + 86400000})
 
-    sub = db.session.query(DefineImages.image_id, DefineImages.id.label('id')).subquery()
+    sub = db_session.query(DefineImages.image_id, DefineImages.id.label('id')).subquery()
 
     all_classes = Classes.query.filter_by(user_id = current_user.id).all()
     number_class = len(all_classes)
 
-    all_people_count = db.session.query(DefineImages.person_access_key, DefineImages.image_id, People.name, People.access_key, People.type_role, People.age, People.gender, People.phone)\
+    all_people_count = db_session.query(DefineImages.person_access_key, DefineImages.image_id, People.name, People.access_key, People.type_role, People.age, People.gender, People.phone)\
               .filter(People.user_id==current_user.id)\
               .filter(People.access_key==DefineImages.person_access_key)\
               .filter(func.lower(People.name).like("%" + args['name'].lower() + "%") & People.type_role.like(args['type_role']) &  People.access_key.like(args['access_key']))
@@ -716,7 +785,7 @@ def people_list(page):
               .filter(DefineImages.id==sub.c.id)\
 
             #   .filter(func.lower(People.name).like('%' + args['name'].lower() + '%') & People.type_role.like('%' + args['type_role'] + '%') & Classes.name.like('%' + args['class_name'] + '%'))\
-    all_people_have_class = db.session.query(DefineImages.person_access_key, DefineImages.image_id, People.name, People.access_key, People.type_role, Classes.name, Classes.access_key)\
+    all_people_have_class = db_session.query(DefineImages.person_access_key, DefineImages.image_id, People.name, People.access_key, People.type_role, Classes.name, Classes.access_key)\
               .filter(People.user_id==current_user.id)\
               .filter(People.access_key==DefineImages.person_access_key)\
               .filter(People.access_key==PeopleClasses.person_access_key)\
@@ -727,7 +796,7 @@ def people_list(page):
             #   .group_by(DefineImages.person_access_key, People.name, People.access_key)\
             #   .filter(DefineImages.id==sub.c.id)\
 
-    current_checkin = db.session.query(Timeline.person_access_key, func.min(Timeline.timestamp), func.max(Timeline.timestamp), Timeline.image_id, People.name)\
+    current_checkin = db_session.query(Timeline.person_access_key, func.min(Timeline.timestamp), func.max(Timeline.timestamp), Timeline.image_id, People.name)\
               .filter(Timeline.user_id==current_user.id)\
               .filter(People.access_key==Timeline.person_access_key)\
               .filter(Timeline.timestamp >= int(args['begin']))\
@@ -782,41 +851,41 @@ def people_list(page):
     number_of_people = len(all_people_count.all())
     current_checkin = [people_array[u] for u in people_array.keys()]
     
-    return jsonify({
+    return web.json_response({
         "result": {
             "people_list": current_checkin,
             'number_of_people': number_of_people,
             'number_of_current_checkin': number_of_current_checkin,
         }
-    }), 200
+    }, status = 200)
 
 
-@app.route("/data")
-@login_required
-def data():
+
+@login_app.login_required
+async def data_a(current_user, request):
     today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000
     
-    all_people = db.session.query(DefineImages.person_access_key, DefineImages.image_id, People.name, People.access_key)\
+    all_people = db_session.query(DefineImages.person_access_key, DefineImages.image_id, People.name, People.access_key)\
               .filter(People.user_id==current_user.id)\
               .filter(People.access_key==DefineImages.person_access_key)\
               .group_by(DefineImages.person_access_key, People.name, People.access_key)\
               .all()
 
-    current_checkin = db.session.query(Timeline.person_access_key, Timeline.timestamp, Timeline.image_id, People.name)\
+    current_checkin = db_session.query(Timeline.person_access_key, Timeline.timestamp, Timeline.image_id, People.name)\
               .filter(Timeline.user_id==current_user.id)\
               .filter(People.access_key==Timeline.person_access_key)\
               .filter(Timeline.timestamp >= today)\
               .group_by(Timeline.person_access_key, People.name)\
               .all()
 
-    current_timeline = db.session.query(Timeline.person_access_key, Timeline.timestamp, Timeline.image_id, People.name)\
+    current_timeline = db_session.query(Timeline.person_access_key, Timeline.timestamp, Timeline.image_id, People.name)\
               .filter(Timeline.user_id==current_user.id)\
               .filter(People.access_key==Timeline.person_access_key)\
               .order_by(Timeline.timestamp.desc())\
               .limit(10)\
               .all()
 
-    strangers = db.session.query(Timeline.person_access_key, Timeline.timestamp, Timeline.image_id)\
+    strangers = db_session.query(Timeline.person_access_key, Timeline.timestamp, Timeline.image_id)\
               .filter(Timeline.user_id==current_user.id)\
               .filter(Timeline.person_access_key==-1)\
               .order_by(Timeline.timestamp.desc())\
@@ -839,7 +908,7 @@ def data():
         r = torch.cuda.memory_reserved(0)
         a = torch.cuda.memory_allocated(0)
 
-    return jsonify({
+    return web.json_response({
         "result": {
             'secret_key': current_user.secret_key,
             'number_of_people': number_of_people,
@@ -852,13 +921,31 @@ def data():
                 'a': a
             }
         }
-    }), 200
+    }, status = 200)
 
 
-@app.route("/images/<secret_key>/<image_id>")
-def images(secret_key, image_id):
-    return send_file('images/' + secret_key + "/" + image_id + '.jpg')
+
+async def images(request): #them secretkey, image_id
+    secret_key = request.match_info.get('secret_key','')
+    image_id = request.match_info.get('image_id', '')
+    return web.FileResponse('images/' + secret_key + "/" + image_id + '.jpg')
 
 
-socketio.run(app, host='0.0.0.0', port=5052)
-# app.run(host='0.0.0.0', port=5000)
+app.router.add_route('*','/', index, name="index")
+app.router.add_route('*','/client', client_a)
+app.router.add_route('*','/logout', logout)
+app.router.add_route('*',"/facerec", facerec)
+app.router.add_route('*','/facereg', facereg)
+app.router.add_route('*','/delete_image', delete_image)
+app.router.add_route('*',"/add_class", add_class)
+app.router.add_route('*',"/delete_class", delete_class)
+app.router.add_route('*',"/check_pickup", check_pickup)
+app.router.add_route('*',"/pickup_list/{page}", get_pickup)
+app.router.add_route('*',"/class_list/{page}", get_class)
+app.router.add_route('*',"/people_list/{page}", people_list)
+app.router.add_route('*',"/data", data_a)
+app.router.add_route('*',"/images/{secret_key}/{image_id}", images)
+
+
+if __name__ == "__main__":
+    web.run_app(app, port=5000)

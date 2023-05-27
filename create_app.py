@@ -1,15 +1,21 @@
-from flask import Flask
-from flask_login import UserMixin, LoginManager
-from flask_sqlalchemy import SQLAlchemy
-
 import os
 import hashlib
 import binascii
 
 import uuid
 
-db = SQLAlchemy()
-login_manager = LoginManager()
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, LargeBinary
+from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+
+DATABASE_URI = 'sqlite:///./face_reg.db'
+
+engine = create_engine(DATABASE_URI)
+db_session = scoped_session(sessionmaker(autocommit=False,
+                                         autoflush=False,
+                                         bind=engine))
+Base = declarative_base()
+Base.query = db_session.query_property()
 
 def hash_pass(password):
     """Hash a password for storing."""
@@ -35,15 +41,15 @@ def verify_pass(provided_password, stored_password):
     return pwdhash == stored_password
 
 
-class Users(db.Model, UserMixin):
+class Users(Base):
 
     __tablename__ = 'Users'
 
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(64), unique=True)
-    password = db.Column(db.LargeBinary)
-    role = db.Column(db.String(64))
-    secret_key = db.Column(db.String(64), unique=True)
+    id = Column(Integer, primary_key=True)
+    username = Column(String(64), unique=True)
+    password = Column(LargeBinary)
+    role = Column(String(64))
+    secret_key = Column(String(64), unique=True)
 
     def __init__(self, **kwargs):
         for property, value in kwargs.items():
@@ -64,30 +70,18 @@ class Users(db.Model, UserMixin):
     def __repr__(self):
         return str(self.username)
 
-
-@login_manager.user_loader
-def user_loader(id):
-    return Users.query.filter_by(id=id).first()
-
-
-@login_manager.request_loader
-def request_loader(request):
-    username = request.form.get('username')
-    user = Users.query.filter_by(username=username).first()
-    return user if user else None
-
-class People(db.Model):
+class People(Base):
 
     __tablename__ = 'People'
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer)
-    name = db.Column(db.String(200))
-    age = db.Column(db.Integer)
-    gender = db.Column(db.String(64))
-    type_role = db.Column(db.String(64))
-    phone = db.Column(db.String(64))
-    access_key = db.Column(db.String(64), unique=True)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    name = Column(String(200))
+    age = Column(Integer)
+    gender = Column(String(64))
+    type_role = Column(String(64))
+    phone = Column(String(64))
+    access_key = Column(String(64), unique=True)
 
     def __init__(self, **kwargs):
         for property, value in kwargs.items():
@@ -103,13 +97,13 @@ class People(db.Model):
     def __repr__(self):
         return str(self.id)
     
-class ChildrenPicker(db.Model):
+class ChildrenPicker(Base):
 
     __tablename__ = 'ChildrenParent'
 
-    id = db.Column(db.Integer, primary_key=True)
-    child_access_key = db.Column(db.Integer)
-    picker_access_key = db.Column(db.Integer)
+    id = Column(Integer, primary_key=True)
+    child_access_key = Column(Integer)
+    picker_access_key = Column(Integer)
 
     def __init__(self, **kwargs):
         for property, value in kwargs.items():
@@ -125,12 +119,12 @@ class ChildrenPicker(db.Model):
     def __repr__(self):
         return str(self.id)
     
-class PeopleClasses(db.Model):
+class PeopleClasses(Base):
     
     __tablename__ = 'PeopleClasses'
-    id = db.Column(db.Integer, primary_key=True)
-    person_access_key = db.Column(db.String(64), unique=True)
-    class_access_key = db.Column(db.Integer)
+    id = Column(Integer, primary_key=True)
+    person_access_key = Column(String(64), unique=True)
+    class_access_key = Column(Integer)
 
     def __init__(self, **kwargs):
         for property, value in kwargs.items():
@@ -146,14 +140,14 @@ class PeopleClasses(db.Model):
     def __repr__(self):
         return str(self.id)
     
-class Classes(db.Model):
+class Classes(Base):
     
     __tablename__ = 'Classes'
 
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200))
-    user_id = db.Column(db.Integer)
-    access_key = db.Column(db.String(64), unique=True)
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200))
+    user_id = Column(Integer)
+    access_key = Column(String(64), unique=True)
 
     def __init__(self, **kwargs):
         for property, value in kwargs.items():
@@ -169,13 +163,13 @@ class Classes(db.Model):
     def __repr__(self):
         return str(self.id)
 
-class DefineImages(db.Model):
+class DefineImages(Base):
 
     __tablename__ = 'DefineImages'
 
-    id = db.Column(db.Integer, primary_key=True)
-    person_access_key = db.Column(db.String(64))
-    image_id = db.Column(db.String(64), unique=True)
+    id = Column(Integer, primary_key=True)
+    person_access_key = Column(String(64))
+    image_id = Column(String(64), unique=True)
 
     def __init__(self, **kwargs):
         for property, value in kwargs.items():
@@ -192,16 +186,16 @@ class DefineImages(db.Model):
         return str(self.id)
 
 
-class Timeline(db.Model):
+class Timeline(Base):
 
     __tablename__ = 'Timeline'
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer)
-    person_access_key = db.Column(db.String(64))
-    image_id = db.Column(db.String(64), unique=True)
-    embedding = db.Column(db.Text)
-    timestamp = db.Column(db.Float)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    person_access_key = Column(String(64))
+    image_id = Column(String(64), unique=True)
+    embedding = Column(Text)
+    timestamp = Column(Float)
 
     def __init__(self, **kwargs):
         for property, value in kwargs.items():
@@ -217,15 +211,15 @@ class Timeline(db.Model):
     def __repr__(self):
         return str(self.id)
     
-class PickUp(db.Model):
+class PickUp(Base):
     
     __tablename__ = 'PickUp'
 
-    id = db.Column(db.Integer, primary_key=True)
-    child_access_key = db.Column(db.String(64))
-    picker_access_key = db.Column(db.String(64))
-    child_timeline = db.Column(db.Integer)
-    picker_timeline = db.Column(db.Integer)
+    id = Column(Integer, primary_key=True)
+    child_access_key = Column(String(64))
+    picker_access_key = Column(String(64))
+    child_timeline = Column(Integer)
+    picker_timeline = Column(Integer)
     
 
     def __init__(self, **kwargs):
@@ -242,47 +236,13 @@ class PickUp(db.Model):
     def __repr__(self):
         return str(self.id)
 
-def register_extensions(app):
-    db.init_app(app)
-    login_manager.init_app(app)
 
-def configure_database(app):
-
-    @app.before_first_request
-    def initialize_database():
-        db.create_all()
-
-    @app.teardown_request
-    def shutdown_session(exception=None):
-        db.session.remove()
-
-def create_app():
-    class ProductionConfig(object):
-        DEBUG = False
-        
-        basedir = '.'
-
-        # Security
-        SESSION_COOKIE_HTTPONLY = True
-        REMEMBER_COOKIE_HTTPONLY = True
-        REMEMBER_COOKIE_DURATION = 3600
-
-        # PostgreSQL database
-        SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(basedir, 'db.sqlite3')
-        SQLALCHEMY_TRACK_MODIFICATIONS = False
-
-    
-    app = Flask(__name__)
-    app.config.from_object(ProductionConfig)
-    register_extensions(app)
-    configure_database(app)
-    index_dir_path = 'indexes/'
-    image_dir_path = 'images/'
-    instance_dir_path = 'instance/'
-    if not os.path.exists(index_dir_path):
-        os.makedirs(index_dir_path)
-    if not os.path.exists(image_dir_path):
-        os.makedirs(image_dir_path)
-    if not os.path.exists(instance_dir_path):
-        os.makedirs(instance_dir_path)
-    return app
+index_dir_path = 'indexes/'
+image_dir_path = 'images/'
+instance_dir_path = 'instance/'
+if not os.path.exists(index_dir_path):
+    os.makedirs(index_dir_path)
+if not os.path.exists(image_dir_path):
+    os.makedirs(image_dir_path)
+if not os.path.exists(instance_dir_path):
+    os.makedirs(instance_dir_path)
