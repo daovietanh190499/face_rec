@@ -138,7 +138,7 @@ var people_list = Vue.component('people-list', {
 var checkin_list = Vue.component('checkin-list', {
     data() {
         return {
-            websocket: new WebSocket(`ws://${window.location.host}${window.location.pathname == '/' ? '': window.location.pathname}/${secret_key}`),
+            websocket: new WebSocket(`wss://${window.location.host}${window.location.pathname == '/' ? '': window.location.pathname}/${secret_key}`),
             current_timeline: [],
             strangers: [],
             secret_key: secret_key

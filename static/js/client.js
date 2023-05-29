@@ -92,7 +92,7 @@ const renderPrediction = async () => {
       if (count % 50 == 0) {
           var destCtx = destinationCanvas.getContext('2d');
           destCtx.drawImage(video, 0, 0);
-          fetch('/facerec', {method: 'POST', headers: {
+          fetch('./facerec', {method: 'POST', headers: {
             'Content-Type': 'application/json'
             // 'Content-Type': 'application/x-www-form-urlencoded',
           }, body: JSON.stringify({

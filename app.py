@@ -131,7 +131,7 @@ class LoginApp():
         def decorated(*args, **kwargs):
             user = None
             try:
-                access_key = args[0].cookies['user_access_key']
+                access_key = args[0].cookies['user_face_key']
             except:
                 access_key = None
             if not access_key:
@@ -140,6 +140,10 @@ class LoginApp():
                 user = Users.query.filter_by(access_key=access_key).first()
                 if user:
                     user = user.__dict__
+            if not user:
+                response = web.HTTPSeeOther(location='./')
+                response.cookies['user_face_key'] = ''
+                return response
             return f(*((user,) + args), **kwargs)
         return decorated
         
@@ -147,15 +151,14 @@ class LoginApp():
         access_key = uuid.uuid4()
         user.access_key = str(access_key)
         db_session.commit()
-        location = request.app.router['index'].url_for()
-        response = web.HTTPSeeOther(location=location)
-        response.cookies['user_access_key'] = user.access_key
+        
+        response = web.HTTPSeeOther(location='./')
+        response.cookies['user_face_key'] = user.access_key
         return response
 
     def logout_user(self, request):
-        location = request.app.router['index'].url_for()
-        response = web.HTTPSeeOther(location=location)
-        response.cookies['user_access_key'] = ''
+        response = web.HTTPSeeOther(location='./')
+        response.cookies['user_face_key'] = ''
         return response
 
 login_app = LoginApp()
@@ -185,17 +188,14 @@ def create_error_middleware(overrides):
     return error_middleware
 
 def handle_403(request, ex):
-    location = request.app.router['index'].url_for()
-    raise web.HTTPFound(location=location)
+    web.json_response({"result": {'message': ex}}, status=403)
 
 def handle_404(request, ex):
-    location = request.app.router['index'].url_for()
-    raise web.HTTPFound(location=location)
+    web.json_response({"result": {'message': ex}}, status=404)
 
 
 def handle_500(request, ex):
-    location = request.app.router['index'].url_for()
-    raise web.HTTPFound(location=location)
+    web.json_response({"result": {'message': ex}}, status=500)
 
 def setup_middlewares(app):
     error_middleware = create_error_middleware({
@@ -223,8 +223,8 @@ async def index(current_user, request):
         if user and verify_pass(password, user.password):
             return login_app.login_user(user, request)
         
-        location = request.app.router['index'].url_for()
-        raise web.HTTPFound(location=location)
+        
+        raise web.HTTPFound(location='./')
 
     
     if 'register' in data and request.method == 'POST':
@@ -232,14 +232,14 @@ async def index(current_user, request):
         password = data.get('password')
 
         if username.strip() == "" or password.strip() == "":
-            location = request.app.router['index'].url_for()
-            raise web.HTTPFound(location=location)
+            
+            raise web.HTTPFound(location='./')
 
         # Check usename exists
         user = Users.query.filter_by(username=username).first()
         if user:
-            location = request.app.router['index'].url_for()
-            raise web.HTTPFound(location=location)
+            
+            raise web.HTTPFound(location='./')
         # else we can create the user
         user = Users(username=username, password=password, secret_key="")
         db_session.add(user)
@@ -255,7 +255,6 @@ async def index(current_user, request):
     
     if not current_user:
         return {'is_login': False, 'current_user': None}
-    print("authorized")
     return {'is_login': True, 'current_user': current_user}
 
 @aiohttp_jinja2.template('client.html') 
@@ -265,9 +264,7 @@ async def client_a(current_user, request):
     
 
 async def logout(request):
-    login_app.logout_user()
-    location = request.app.router['index'].url_for()
-    raise web.HTTPFound(location=location)
+    return login_app.logout_user(request)
 
 def get_embeddings(img_input, local_register = False):
     # img = []
@@ -378,14 +375,18 @@ async def facerec(request):
 
 
 def validate_request(req, keys, values):
+    new_req = {}
     for key in keys:
         if not key in req:
-            req[key] = values[key]
-    return req
+            new_req[key] = values[key]
+        else:
+            new_req[key] = req[key]
+    return new_req
             
 
 async def facereg(request):
-    req = request.get_json()
+    req = await request.json()
+
     if 'secret_key' not in req:
         return  web.json_response({"result": {'message': 'Vui lòng truyền secret key'}}, status=400)
 
@@ -415,7 +416,7 @@ async def facereg(request):
             return  web.json_response({"result": {'message': 'Vui lòng tryền đầy đủ dữ liệu'}}, status=400)
         access_key = str(uuid.uuid4())
         # NVB 13-1-2023
-        req = validate_request(req, ['name', 'age', 'type_role', 'class_access_key', 'gender', 'phone'], {'name': None, 'age': None, 'type_role': None, 'class_access_key': None, 'gender': None, 'phone': None})
+        req = validate_request(req, ['name', 'age', 'type_role', 'class_access_key', 'gender', 'phone', 'secret_key'], {'name': None, 'age': None, 'type_role': None, 'class_access_key': None, 'gender': None, 'phone': None, 'secret_key': None})
         person = People(user_id=user.id, name=req['name'], age=req['age'], type_role=req['type_role'], gender=req['gender'], phone=req['phone'], access_key=access_key)
         db_session.add(person)
         db_session.commit()
@@ -431,7 +432,7 @@ async def facereg(request):
         access_key = req['access_key']
         person = People.query.filter_by(access_key=access_key, user_id=user.id).first()  
         # req = validate_request(req, ['name', 'age', 'type_role', 'gender', 'phone'], person._asdict())
-        req = validate_request(req, ['name', 'age', 'type_role', 'gender', 'phone'], person.__dict__)
+        req = validate_request(req, ['name', 'age', 'type_role', 'class_access_key', 'gender', 'phone', 'secret_key'], person.__dict__)
         person.name=req['name']
         person.age=req['age']
         person.type_role=req['type_role']
@@ -503,13 +504,13 @@ async def facereg(request):
 
 @login_app.login_required
 async def delete_image(current_user, request):
-    req = request.get_json()
+    req = await request.json()
     if 'access_key' not in req:
         return  web.json_response({"result": {'message': 'Vui lòng truyền access key'}}, status=400)
     
     access_key = req['access_key']
     
-    person = People.query.filter_by(access_key=access_key, user_id=current_user.id).first()
+    person = People.query.filter_by(access_key=access_key, user_id=current_user['id']).first()
     if not person:
         return  web.json_response({"result": {'message': 'Bạn không có quyền xóa'}}, status=403)
 
@@ -547,7 +548,7 @@ async def delete_image(current_user, request):
     print('\n\n\nRebuild hnswlib\n\n\n')
     # Rebuild index
     remainImages = db_session.query(People.id, DefineImages.id, Timeline.embedding) \
-                        .filter(People.user_id==current_user.id) \
+                        .filter(People.user_id==current_user['id']) \
                         .filter(DefineImages.person_access_key==People.access_key) \
                         .filter(Timeline.image_id==DefineImages.image_id) \
                         .all()
@@ -557,7 +558,7 @@ async def delete_image(current_user, request):
         embedding = embedding[2:-2]
         embedding = np.expand_dims(np.fromstring(embedding, dtype='float32', sep=','), axis=0)
         p.add_items(embedding, np.array([imageI[1]]))
-    p.save_index("indexes/index_" + str(current_user.secret_key) + ".bin")
+    p.save_index("indexes/index_" + str(current_user['secret_key']) + ".bin")
     
     return  web.json_response({"result" : {'mesage' : "Ok"}}, status=200)
 
@@ -565,21 +566,21 @@ async def delete_image(current_user, request):
 
 @login_app.login_required
 async def add_class(current_user, request):
-    req = request.get_json()
+    req = await request.json()
     if 'class_access_key' not in req or req['class_access_key'] == "":
         access_key = str(uuid.uuid4())
-        new_class = Classes(name=req['class_name'], user_id=current_user.id, access_key=access_key)
+        new_class = Classes(name=req['class_name'], user_id=current_user['id'], access_key=access_key)
         db_session.add(new_class)
         db_session.commit()
     else:
-        new_class = Classes.query.filter_by(access_key=req['class_access_key'], user_id=current_user.id).first()  
+        new_class = Classes.query.filter_by(access_key=req['class_access_key'], user_id=current_user['id']).first()  
         if 'class_name' in req and req['class_name'] != "":
             new_class.name = req['class_name']
             db_session.commit()
     
     if 'teacher_access_keys' in req and not req['teacher_access_keys'] is None:
         for ak in req['teacher_access_keys']:
-            person = People.query.filter_by(access_key=ak, user_id=current_user.id, type_role="teacher").first()  
+            person = People.query.filter_by(access_key=ak, user_id=current_user['id'], type_role="teacher").first()  
             if person:
                 pc = PeopleClasses.query.filter_by(person_access_key=person.access_key).first()
                 if not pc:
@@ -593,9 +594,9 @@ async def add_class(current_user, request):
 
 @login_app.login_required
 async def delete_class(current_user, request):
-    req = request.get_json()
+    req = await request.json()
     class_access_key = req['class_access_key']
-    target_class = Classes.query.filter_by(access_key=class_access_key, user_id=current_user.id).first()
+    target_class = Classes.query.filter_by(access_key=class_access_key, user_id=current_user['id']).first()
     if not target_class:
         return  web.json_response({"result": {'message': 'Bạn không có quyền xóa lớp này'}}, status=403)
 
@@ -610,7 +611,7 @@ async def delete_class(current_user, request):
 
 
 async def check_pickup(request):
-    req = request.get_json()
+    req = await request.json()
     if 'secret_key' not in req:
         return  web.json_response({"result": {'message': 'Vui lòng truyền secret key'}}, status=400)
 
@@ -645,11 +646,9 @@ async def check_pickup(request):
     return  web.json_response({"result": {'message': 'success'}}, status=200)
 
 
-
 @login_app.login_required
 async def get_pickup(current_user, request): #them page
-    args = request.args.to_dict()
-    
+    args = request.rel_url.query
     page = request.match_info.get('page','1')
 
     page = int(page)
@@ -662,8 +661,8 @@ async def get_pickup(current_user, request): #them page
     People_alias = aliased(People)
     Timeline_alias = aliased(Timeline)
     all_pickups_available = db_session.query(PickUp.id, Timeline.timestamp, People.name, People_alias.name, Timeline.image_id, Timeline_alias.image_id)\
-              .filter(Timeline.user_id==current_user.id)\
-              .filter(Timeline_alias.user_id==current_user.id)\
+              .filter(Timeline.user_id==current_user['id'])\
+              .filter(Timeline_alias.user_id==current_user['id'])\
               .filter(PickUp.child_access_key==People.access_key)\
               .filter(PickUp.picker_access_key==People_alias.id)\
               .filter(PickUp.child_timeline==Timeline.id)\
@@ -696,8 +695,7 @@ async def get_pickup(current_user, request): #them page
 
 @login_app.login_required
 async def get_class(current_user, request): #them page
-    args = request.args.to_dict()
-
+    args = request.rel_url.query
     page = request.match_info.get('page','1')
     
     page = int(page)
@@ -708,13 +706,13 @@ async def get_class(current_user, request): #them page
     args = validate_request(args, ['name', 'class_access_key'], {'name': '', 'class_access_key': '%%'})
     
     all_classes_count = db_session.query(Classes.access_key, Classes.name)\
-              .filter(Classes.user_id==current_user.id)\
+              .filter(Classes.user_id==current_user['id'])\
               .filter(func.lower(Classes.name).like('%'+args['name'].lower()+'%') & Classes.access_key.like(args['class_access_key']))
     
     all_classes_available = all_classes_count.limit(page_size).offset((page - 1) * page_size).all()
     
     all_classes = db_session.query(Classes.access_key, Classes.name, func.count(Classes.access_key))\
-              .filter(Classes.user_id==current_user.id)\
+              .filter(Classes.user_id==current_user['id'])\
               .filter(Classes.access_key==PeopleClasses.class_access_key)\
               .filter(People.access_key==PeopleClasses.person_access_key)\
               .filter(People.type_role=='student')\
@@ -722,7 +720,7 @@ async def get_class(current_user, request): #them page
               .all()
     
     all_classes_teacher = db_session.query(Classes.access_key, Classes.name, People.name,  DefineImages.image_id)\
-              .filter(Classes.user_id==current_user.id)\
+              .filter(Classes.user_id==current_user['id'])\
               .filter(Classes.access_key==PeopleClasses.class_access_key)\
               .filter(People.access_key==PeopleClasses.person_access_key)\
               .filter(People.type_role=='teacher')\
@@ -754,7 +752,7 @@ async def get_class(current_user, request): #them page
 
 @login_app.login_required
 async def people_list(current_user, request): #tham page
-    args = request.args.to_dict()
+    args = request.rel_url.query
 
     page = request.match_info.get('page','1')
     
@@ -768,11 +766,11 @@ async def people_list(current_user, request): #tham page
 
     sub = db_session.query(DefineImages.image_id, DefineImages.id.label('id')).subquery()
 
-    all_classes = Classes.query.filter_by(user_id = current_user.id).all()
+    all_classes = Classes.query.filter_by(user_id = current_user['id']).all()
     number_class = len(all_classes)
 
     all_people_count = db_session.query(DefineImages.person_access_key, DefineImages.image_id, People.name, People.access_key, People.type_role, People.age, People.gender, People.phone)\
-              .filter(People.user_id==current_user.id)\
+              .filter(People.user_id==current_user['id'])\
               .filter(People.access_key==DefineImages.person_access_key)\
               .filter(func.lower(People.name).like("%" + args['name'].lower() + "%") & People.type_role.like(args['type_role']) &  People.access_key.like(args['access_key']))
 
@@ -784,7 +782,7 @@ async def people_list(current_user, request): #tham page
 
             #   .filter(func.lower(People.name).like('%' + args['name'].lower() + '%') & People.type_role.like('%' + args['type_role'] + '%') & Classes.name.like('%' + args['class_name'] + '%'))\
     all_people_have_class = db_session.query(DefineImages.person_access_key, DefineImages.image_id, People.name, People.access_key, People.type_role, Classes.name, Classes.access_key)\
-              .filter(People.user_id==current_user.id)\
+              .filter(People.user_id==current_user['id'])\
               .filter(People.access_key==DefineImages.person_access_key)\
               .filter(People.access_key==PeopleClasses.person_access_key)\
               .filter(Classes.access_key==PeopleClasses.class_access_key)\
@@ -795,7 +793,7 @@ async def people_list(current_user, request): #tham page
             #   .filter(DefineImages.id==sub.c.id)\
 
     current_checkin = db_session.query(Timeline.person_access_key, func.min(Timeline.timestamp), func.max(Timeline.timestamp), Timeline.image_id, People.name)\
-              .filter(Timeline.user_id==current_user.id)\
+              .filter(Timeline.user_id==current_user['id'])\
               .filter(People.access_key==Timeline.person_access_key)\
               .filter(Timeline.timestamp >= int(args['begin']))\
               .filter(Timeline.timestamp <= int(args['end']))\

@@ -4,12 +4,8 @@ certifi==2022.6.15
 charset-normalizer==2.1.1
 click==8.1.3
 einops==0.4.1
-Flask==2.2.2
-Flask-Login==0.6.2
-Flask-Migrate==3.1.0
-Flask-SocketIO==5.2.0
-Flask-SQLAlchemy==2.5.1
-Flask-WTF==1.0.1
+aiohttp
+aiohttp_jinja2
 greenlet==1.1.2
 h11==0.13.0
 hnswlib==0.6.2
