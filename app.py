@@ -49,12 +49,12 @@ aiohttp_jinja2.setup(app, loader=jinja2.FileSystemLoader('templates'))
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-class_names = [name.strip() for name in open('app/detect_RFB_640/voc-model-labels.txt').readlines()]
+class_names = [name.strip() for name in open('./app/detect_RFB_640/voc-model-labels.txt').readlines()]
 candidate_size = 1000
 threshold = 0.7
 input_img_size = 640
 define_img_size(input_img_size)
-model_path = "app/detect_RFB_640/version-RFB-640.pth"
+model_path = "./app/detect_RFB_640/version-RFB-640.pth"
 net = create_Mb_Tiny_RFB_fd(len(class_names), is_test=True, device=device)
 predictor = create_Mb_Tiny_RFB_fd_predictor(net, candidate_size=candidate_size, device=device)
 net.load(model_path)
@@ -73,7 +73,7 @@ transform = transforms.Compose(
 )
 
 backbone = Backbone(input_size)
-backbone.load_state_dict(torch.load('app/ms1mv3_arcface_r50_fp16/backbone_ir50_ms1m_epoch120.pth', map_location=torch.device("cpu")))
+backbone.load_state_dict(torch.load('./app/ms1mv3_arcface_r50_fp16/backbone_ir50_ms1m_epoch120.pth', map_location=torch.device("cpu")))
 backbone.to(device)
 backbone.eval()
 
@@ -140,10 +140,6 @@ class LoginApp():
                 user = Users.query.filter_by(access_key=access_key).first()
                 if user:
                     user = user.__dict__
-            if not user:
-                response = web.HTTPSeeOther(location='./')
-                response.cookies['user_face_key'] = ''
-                return response
             return f(*((user,) + args), **kwargs)
         return decorated
         
@@ -177,8 +173,6 @@ def create_error_middleware(overrides):
                 resp = await override(request, ex)
                 resp.set_status(ex.status)
                 return resp
-
-            raise
         except Exception as e:
             print(traceback.format_exc())
             resp = await overrides[500](request, web.HTTPError(text=traceback.format_exc()))
@@ -187,15 +181,20 @@ def create_error_middleware(overrides):
 
     return error_middleware
 
-def handle_403(request, ex):
-    web.json_response({"result": {'message': ex}}, status=403)
-
-def handle_404(request, ex):
-    web.json_response({"result": {'message': ex}}, status=404)
+async def handle_403(request, ex):
+    # return web.json_response({"result": {'message': ex.text}}, status=403)
+    raise web.HTTPFound(location='./')
 
 
-def handle_500(request, ex):
-    web.json_response({"result": {'message': ex}}, status=500)
+async def handle_404(request, ex):
+    # return web.json_response({"result": {'message': ex.text}}, status=404)
+    raise web.HTTPFound(location='./')
+
+
+async def handle_500(request, ex):
+    # return web.json_response({"result": {'message': ex.text}}, status=500)
+    raise web.HTTPFound(location='./')
+
 
 def setup_middlewares(app):
     error_middleware = create_error_middleware({
