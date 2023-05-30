@@ -12,6 +12,7 @@ from aiohttp import web
 from aiohttp import client
 import aiohttp
 import asyncio
+from aiohttp_swagger import *
 
 import threading
 import argparse
@@ -301,6 +302,23 @@ def get_embeddings(img_input, local_register = False):
 
 
 async def facerec(request):
+    """
+    ---
+    description: This end-point allow to recognize face identity.
+    tags:
+    - Face Recognition
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successful operation
+        "400":
+            description: Vui lòng truyền secret key
+        "400":
+            description: Vui lòng truyền ảnh dưới dạng Base64
+        "403":
+            description: Secret key không hợp lệ
+    """
     req = await request.json()
 
     if 'secret_key' not in req:
@@ -384,6 +402,23 @@ def validate_request(req, keys, values):
             
 
 async def facereg(request):
+    """
+    ---
+    description: This end-point allow to enroll face identity.
+    tags:
+    - Face Registation
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successful operation
+        "400":
+            description: Vui lòng truyền secret key
+        "400":
+            description: Vui lòng truyền ảnh dưới dạng Base64
+        "403":
+            description: Secret key không hợp lệ
+    """
     req = await request.json()
 
     if 'secret_key' not in req:
@@ -503,6 +538,21 @@ async def facereg(request):
 
 @login_app.login_required
 async def delete_image(current_user, request):
+    """
+    ---
+    description: This end-point allow to delete face image.
+    tags:
+    - Face Image Deleting
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successfull operation
+        "400":
+            description: Vui lòng truyền access key
+        "403":
+            description: Bạn không có quyền xóa
+    """
     req = await request.json()
     if 'access_key' not in req:
         return  web.json_response({"result": {'message': 'Vui lòng truyền access key'}}, status=400)
@@ -565,6 +615,17 @@ async def delete_image(current_user, request):
 
 @login_app.login_required
 async def add_class(current_user, request):
+    """
+    ---
+    description: This end-point allow to add class.
+    tags:
+    - Class Adding
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successfull operation
+    """
     req = await request.json()
     if 'class_access_key' not in req or req['class_access_key'] == "":
         access_key = str(uuid.uuid4())
@@ -593,6 +654,19 @@ async def add_class(current_user, request):
 
 @login_app.login_required
 async def delete_class(current_user, request):
+    """
+    ---
+    description: This end-point allow to delete class.
+    tags:
+    - Class Deleting
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successfull operation
+        "403":
+            description: Bạn không có quyền xóa
+    """
     req = await request.json()
     class_access_key = req['class_access_key']
     target_class = Classes.query.filter_by(access_key=class_access_key, user_id=current_user['id']).first()
@@ -610,6 +684,21 @@ async def delete_class(current_user, request):
 
 
 async def check_pickup(request):
+    """
+    ---
+    description: This end-point allow to check pickup between parent and children.
+    tags:
+    - Pickup Checking
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successfull operation
+        "400":
+            description: Vui lòng truyền secret key
+        "403":
+            description: Secret key không hợp lệ
+    """
     req = await request.json()
     if 'secret_key' not in req:
         return  web.json_response({"result": {'message': 'Vui lòng truyền secret key'}}, status=400)
@@ -647,6 +736,17 @@ async def check_pickup(request):
 
 @login_app.login_required
 async def get_pickup(current_user, request): #them page
+    """
+    ---
+    description: This end-point allow to get all pickup between parent and children.
+    tags:
+    - Pickup Listing
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successfull operation
+    """
     args = request.rel_url.query
     page = request.match_info.get('page','1')
 
@@ -694,6 +794,17 @@ async def get_pickup(current_user, request): #them page
 
 @login_app.login_required
 async def get_class(current_user, request): #them page
+    """
+    ---
+    description: This end-point allow to check get all class of yours.
+    tags:
+    - Class Listing
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successfull operation
+    """
     args = request.rel_url.query
     page = request.match_info.get('page','1')
     
@@ -751,6 +862,17 @@ async def get_class(current_user, request): #them page
 
 @login_app.login_required
 async def people_list(current_user, request): #tham page
+    """
+    ---
+    description: This end-point allow to check get all people of yours.
+    tags:
+    - People Listing
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successfull operation
+    """
     args = request.rel_url.query
 
     page = request.match_info.get('page','1')
@@ -858,6 +980,17 @@ async def people_list(current_user, request): #tham page
 
 @login_app.login_required
 async def data_a(current_user, request):
+    """
+    ---
+    description: This end-point allow to check get all data of yours.
+    tags:
+    - Data Profiling
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successfull operation
+    """
     today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000
     
     all_people = db_session.query(DefineImages.person_access_key, DefineImages.image_id, People.name, People.access_key)\
@@ -921,27 +1054,39 @@ async def data_a(current_user, request):
 
 
 async def images(request): #them secretkey, image_id
+    """
+    ---
+    description: This end-point allow to check get image.
+    tags:
+    - Image
+    produces:
+    - text/json
+    responses:
+        "200":
+            description: successfull operation
+    """
     secret_key = request.match_info.get('secret_key','')
     image_id = request.match_info.get('image_id', '')
     return web.FileResponse('images/' + secret_key + "/" + image_id + '.jpg')
 
 
-app.router.add_route('*','/', index, name="index")
-app.router.add_route('*','/client', client_a)
-app.router.add_route('*','/logout', logout)
-app.router.add_route('*',"/facerec", facerec)
-app.router.add_route('*','/facereg', facereg)
-app.router.add_route('*','/delete_image', delete_image)
-app.router.add_route('*',"/add_class", add_class)
-app.router.add_route('*',"/delete_class", delete_class)
-app.router.add_route('*',"/check_pickup", check_pickup)
-app.router.add_route('*',"/pickup_list/{page}", get_pickup)
-app.router.add_route('*',"/class_list/{page}", get_class)
-app.router.add_route('*',"/people_list/{page}", people_list)
-app.router.add_route('*',"/data", data_a)
-app.router.add_route('*',"/images/{secret_key}/{image_id}", images)
+app.router.add_route('GET','/', index, name="index")
+app.router.add_route('GET','/client', client_a)
+app.router.add_route('GET','/logout', logout)
+app.router.add_route('POST',"/facerec", facerec)
+app.router.add_route('POST','/facereg', facereg)
+app.router.add_route('POST','/delete_image', delete_image)
+app.router.add_route('POST',"/add_class", add_class)
+app.router.add_route('POST',"/delete_class", delete_class)
+app.router.add_route('POST',"/check_pickup", check_pickup)
+app.router.add_route('GET',"/pickup_list/{page}", get_pickup)
+app.router.add_route('GET',"/class_list/{page}", get_class)
+app.router.add_route('GET',"/people_list/{page}", people_list)
+app.router.add_route('GET',"/data", data_a)
+app.router.add_route('GET',"/images/{secret_key}/{image_id}", images)
 app.add_routes([web.static('/static', 'static')])
 
+setup_swagger(app, swagger_url="./api/v1/doc", ui_version=3)
 
 if __name__ == "__main__":
     web.run_app(app, port=5000)
