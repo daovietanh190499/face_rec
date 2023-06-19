@@ -252,7 +252,6 @@ async def index(current_user, request):
         p.save_index("indexes/index_" + str(user.secret_key) + ".bin")
 
         return login_app.login_user(user, request)
-    
     if not current_user:
         return {'is_login': False, 'current_user': None}
     return {'is_login': True, 'current_user': current_user}
@@ -1070,7 +1069,7 @@ async def images(request): #them secretkey, image_id
     return web.FileResponse('images/' + secret_key + "/" + image_id + '.jpg')
 
 
-app.router.add_route('GET','/', index, name="index")
+app.router.add_route('*','/', index, name="index")
 app.router.add_route('GET','/client', client_a)
 app.router.add_route('GET','/logout', logout)
 app.router.add_route('POST',"/facerec", facerec)
